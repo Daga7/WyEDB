@@ -62,6 +62,29 @@ class EntregableAligner:
         self._fill_single_leftover(result, len(target_texts), used)
         return result
 
+    def match_each(
+        self,
+        target_texts: Sequence[str],
+        source_texts: Sequence[str],
+    ) -> list[int | None]:
+        """Para cada ``target`` devuelve el índice del mejor ``source`` (o ``None``).
+
+        A diferencia de ``align``, **no** es uno a uno: un mismo source puede ser la
+        mejor coincidencia de varios targets. Útil para "traer" hacia cada sub-fila
+        del Word el contenido del Excel que le corresponde.
+        """
+        result: list[int | None] = []
+        for target in target_texts:
+            best_index: int | None = None
+            best_score = -1.0
+            for index, source in enumerate(source_texts):
+                score = float(fuzz.token_sort_ratio(target, source))
+                if score > best_score:
+                    best_score = score
+                    best_index = index
+            result.append(best_index if best_score >= self._threshold else None)
+        return result
+
     @staticmethod
     def _fill_single_leftover(
         result: list[int | None], target_count: int, used: set[int]

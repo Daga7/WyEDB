@@ -54,6 +54,20 @@ NO_ACTIVITY_EXACT_MARKERS: Final[tuple[str, ...]] = (
     "n/a",
     "na",
 )
+# - Frases contenidas: si el texto las CONTIENE (en cualquier posición) significa
+#   que no se realizó la actividad, aunque venga precedido de "Durante el periodo..."
+#   o "En el presente periodo...". También cubre el cierre típico
+#   "...sin embargo, se estuvo presto a solicitudes".
+# Raíces deliberadamente cortas para cubrir variantes de redacción y erratas
+# reales ("no fue requerida/requerido/requerdida", "no se requirió el servicio/
+# producto/esta actividad", etc.).
+NO_ACTIVITY_CONTAINS: Final[tuple[str, ...]] = (
+    "no se requirio",          # ...el servicio / el producto / esta actividad
+    "no fue requer",           # no fue requerida / requerido / requerdida (errata)
+    "no se aplico este recurso",
+    "no se presto el servicio",
+    "no se presento actividad",
+)
 
 # Umbral por debajo del cual un profesional se marca para seguimiento.
 MIN_ACTIVITIES_THRESHOLD: Final[int] = 5

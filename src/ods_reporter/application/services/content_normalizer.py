@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from ods_reporter.domain.value_objects.content_item import ContentItem
 from ods_reporter.shared.constants import (
+    NO_ACTIVITY_CONTAINS,
     NO_ACTIVITY_EXACT_MARKERS,
     NO_ACTIVITY_SENTENCE_PREFIXES,
 )
@@ -31,9 +32,9 @@ class ContentNormalizer:
         """
         items: list[ContentItem] = []
         for raw in raw_contents:
-            if self.is_empty_marker(raw):
-                continue
-            for line in raw.splitlines():
+            # El filtrado es POR LÍNEA: una celda puede mezclar líneas reales con
+            # líneas de "no se requirió"; solo se descartan estas últimas.
+            for line in raw.splitlines() or [raw]:
                 clean = clean_content_line(line)
                 if clean and not self.is_empty_marker(clean):
                     items.append(ContentItem(clean))
@@ -41,10 +42,19 @@ class ContentNormalizer:
 
     @staticmethod
     def is_empty_marker(text: str) -> bool:
-        """``True`` si el texto indica ausencia de actividad (se debe ignorar)."""
+        """``True`` si el texto indica ausencia de actividad (se debe ignorar).
+
+        Detecta tres formas:
+          - frases que EMPIEZAN por "no se requirió...";
+          - frases que CONTIENEN "no se requirió el servicio/producto..." (aunque
+            vengan precedidas de "Durante el periodo..." / "En el presente periodo...");
+          - marcadores exactos ("no aplica", "n/a").
+        """
         normalized = normalize_text(text).rstrip(".-: ").strip()
         if not normalized:
             return True
         if any(normalized.startswith(prefix) for prefix in NO_ACTIVITY_SENTENCE_PREFIXES):
+            return True
+        if any(phrase in normalized for phrase in NO_ACTIVITY_CONTAINS):
             return True
         return normalized in NO_ACTIVITY_EXACT_MARKERS

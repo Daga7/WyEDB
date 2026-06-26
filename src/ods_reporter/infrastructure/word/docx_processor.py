@@ -82,36 +82,42 @@ class DocxProcessor:
                 entregables_unmatched=0,
             )
 
-        alignment = self._aligner.align(
-            [e.normalized_text for e in source],
-            [w.normalized_text for w in word_activity.entregables],
-        )
+        word_entregables = word_activity.entregables
+
+        # "Dividido" se decide por la ESTRUCTURA del Excel: si la actividad tiene
+        # una sola fila de entregable, NO está dividida y su contenido va a TODAS
+        # las sub-filas del Word. Si tiene varias, cada contenido va a la sub-fila
+        # cuyo texto de entregable coincide (las que no casan reciben texto por defecto).
+        not_divided = len(activity.entregables) == 1
 
         items_written = 0
         matched = 0
-        unmatched = 0
-        warnings: list[str] = []
 
-        for src_entregable, target_index in zip(source, alignment, strict=True):
-            if target_index is None:
-                unmatched += 1
-                warnings.append(
-                    f"Entregable sin coincidencia en actividad {activity.ordinal}: "
-                    f"'{src_entregable.entregable_text[:40]}'"
-                )
-                continue
-            target = word_activity.entregables[target_index]
-            items_written += self._writer.fill_entregable(target, src_entregable.content_items)
-            self._filled.add(id(target))
-            matched += 1
+        if not_divided:
+            items = source[0].content_items
+            for word_entregable in word_entregables:
+                items_written += self._writer.fill_entregable(word_entregable, items)
+                self._filled.add(id(word_entregable))
+                matched += 1
+        else:
+            matches = self._aligner.match_each(
+                [w.normalized_text for w in word_entregables],
+                [e.normalized_text for e in source],
+            )
+            for word_entregable, source_index in zip(word_entregables, matches, strict=True):
+                if source_index is None:
+                    continue  # esta sub-fila no casa con ningún entregable -> default
+                items = source[source_index].content_items
+                items_written += self._writer.fill_entregable(word_entregable, items)
+                self._filled.add(id(word_entregable))
+                matched += 1
 
         return ActivityInsertResult(
             ordinal=activity.ordinal,
             matched=True,
             items_written=items_written,
             entregables_matched=matched,
-            entregables_unmatched=unmatched,
-            warnings=tuple(warnings),
+            entregables_unmatched=0,
         )
 
     def fill_empty_with_default(self, default_text: str) -> int:
