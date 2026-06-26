@@ -21,10 +21,17 @@ _LEADING_NUMERAL_RE = re.compile(
     re.IGNORECASE,
 )
 
-# Viñeta inicial sin numeral: un guion o símbolo de lista seguido de espacio.
+# Viñeta inicial sin numeral: guion, asterisco, círculo u otro símbolo de lista
+# seguido de espacio.
 #   "- Radicación ICA"  -> "Radicación ICA"
 #   "• Seguimiento"     -> "Seguimiento"
-_LEADING_BULLET_RE = re.compile(r"^\s*[-–—•*·]+\s+")
+#   "○ Círculo"         -> "Círculo"
+_LEADING_BULLET_RE = re.compile(r"^\s*[-–—•*·◦○●∙▪▫‣º°+~]+\s+")
+
+# Número "pelado" inicial (sin punto ni paréntesis): "1 ", "12 ".
+# Se usa SOLO cuando el contexto indica una lista numerada (ver ContentNormalizer),
+# para no borrar números que son parte real del contenido (p. ej. "3 ICA radicados").
+_LEADING_BARE_NUMBER_RE = re.compile(r"^\s*\d{1,2}\s+")
 
 
 def strip_accents(text: str) -> str:
@@ -82,12 +89,19 @@ def is_blank_or_placeholder(text: str) -> bool:
     return stripped == "" or all(char in _PLACEHOLDER_CHARS for char in stripped)
 
 
-def clean_content_line(text: str) -> str:
-    """Limpia una línea de contenido: quita numeración o viñeta inicial y espacios.
+def strip_leading_bare_number(text: str) -> str:
+    """Quita un número inicial "pelado" (sin punto ni paréntesis): ``"1 Cargar"`` -> ``"Cargar"``."""
+    return _LEADING_BARE_NUMBER_RE.sub("", text, count=1).strip()
 
-    No altera el texto interno (mayúsculas, tildes, puntuación): solo retira el
-    prefijo de lista para que luego se inserte con un guion uniforme en el Word.
+
+def clean_content_line(text: str) -> str:
+    """Limpia una línea de contenido: quita numeración/viñeta inicial y colapsa espacios.
+
+    Quita prefijos de lista (``-``, ``*``, ``•``, ``○``, ``1.``, ``1)``, ``a.``, ``i.``…)
+    y reduce los espacios sobrantes (internos y de los extremos). No toca el resto del
+    texto (mayúsculas, tildes, puntuación). El número "pelado" (``1 ``) lo gestiona el
+    normalizador, que sabe si la celda es una lista numerada.
     """
-    stripped = text.strip()
-    without_numeral = strip_leading_numeral(stripped)
+    collapsed = collapse_whitespace(text)
+    without_numeral = strip_leading_numeral(collapsed)
     return strip_leading_bullet(without_numeral)

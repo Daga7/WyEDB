@@ -14,7 +14,8 @@ import logging
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-from ods_reporter.shared.constants import LOG_DIR_NAME, LOG_FILE_NAME
+from ods_reporter.shared.app_paths import logs_dir
+from ods_reporter.shared.constants import LOG_FILE_NAME
 
 _LOG_FORMAT = "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
 _DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
@@ -36,16 +37,19 @@ def setup_logging(
     level:
         Nivel mínimo de severidad a registrar (por defecto INFO).
     log_dir:
-        Carpeta donde se escribe el archivo de log. Si es ``None`` se usa
-        ``./logs`` relativo al directorio de trabajo actual.
+        Carpeta donde se escribe el archivo de log. Si es ``None`` se usa una
+        carpeta de datos del usuario (escribible en cualquier SO), nunca el
+        directorio de trabajo (que en el .exe puede ser ``system32``).
 
     Returns
     -------
     Path
         La ruta del archivo de log activo.
     """
-    log_dir = log_dir or Path.cwd() / LOG_DIR_NAME
-    log_dir.mkdir(parents=True, exist_ok=True)
+    if log_dir is None:
+        log_dir = logs_dir()
+    else:
+        log_dir.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / LOG_FILE_NAME
 
     formatter = logging.Formatter(fmt=_LOG_FORMAT, datefmt=_DATE_FORMAT)

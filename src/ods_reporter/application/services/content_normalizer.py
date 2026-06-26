@@ -13,13 +13,22 @@ Por decisión del usuario, **no** se eliminan ítems duplicados.
 
 from __future__ import annotations
 
+import re
+
 from ods_reporter.domain.value_objects.content_item import ContentItem
 from ods_reporter.shared.constants import (
     NO_ACTIVITY_CONTAINS,
     NO_ACTIVITY_EXACT_MARKERS,
     NO_ACTIVITY_SENTENCE_PREFIXES,
 )
-from ods_reporter.shared.text_utils import clean_content_line, normalize_text
+from ods_reporter.shared.text_utils import (
+    clean_content_line,
+    normalize_text,
+    strip_leading_bare_number,
+)
+
+# Línea que empieza por un número "pelado" + espacio: "1 texto", "12 texto".
+_BARE_NUMBERED_LINE_RE = re.compile(r"^\s*\d{1,2}\s+\S")
 
 
 class ContentNormalizer:
@@ -32,13 +41,25 @@ class ContentNormalizer:
         """
         items: list[ContentItem] = []
         for raw in raw_contents:
+            lines = raw.splitlines() or [raw]
+            # Si la celda es una lista con números "pelados" (1 texto, 2 texto, ...),
+            # se quitan esos números; si no, se conservan (para no borrar números que
+            # son parte real del contenido, como "3 ICA radicados").
+            numbered_list = self._is_bare_numbered_list(lines)
             # El filtrado es POR LÍNEA: una celda puede mezclar líneas reales con
             # líneas de "no se requirió"; solo se descartan estas últimas.
-            for line in raw.splitlines() or [raw]:
+            for line in lines:
                 clean = clean_content_line(line)
+                if numbered_list:
+                    clean = strip_leading_bare_number(clean)
                 if clean and not self.is_empty_marker(clean):
                     items.append(ContentItem(clean))
         return tuple(items)
+
+    @staticmethod
+    def _is_bare_numbered_list(lines: list[str]) -> bool:
+        """``True`` si al menos dos líneas empiezan por un número "pelado" + espacio."""
+        return sum(1 for line in lines if _BARE_NUMBERED_LINE_RE.match(line)) >= 2
 
     @staticmethod
     def is_empty_marker(text: str) -> bool:

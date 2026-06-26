@@ -20,13 +20,30 @@ def normalizer() -> ContentNormalizer:
     [
         ("- Radicación ICA", "Radicación ICA"),
         ("• Seguimiento", "Seguimiento"),
+        ("○ Círculo", "Círculo"),
+        ("º Otro círculo", "Otro círculo"),
+        ("* Asterisco", "Asterisco"),
         ("1. Cargar soporte", "Cargar soporte"),
         ("  2)   Revisar  ", "Revisar"),
+        ("Radicación   de    3   ICA  ", "Radicación de 3 ICA"),  # colapsa espacios
         ("Sin viñeta", "Sin viñeta"),
     ],
 )
 def test_clean_content_line(entrada: str, esperado: str) -> None:
     assert clean_content_line(entrada) == esperado
+
+
+def test_bare_numbered_list_is_stripped(normalizer: ContentNormalizer) -> None:
+    raw = ("1 Cargar soporte\n2 Revisar documento\n3 Radicar",)
+    items = normalizer.normalize(raw)
+    assert [i.text for i in items] == ["Cargar soporte", "Revisar documento", "Radicar"]
+
+
+def test_leading_number_in_real_content_is_kept(normalizer: ContentNormalizer) -> None:
+    # No es una lista: "3 ICA radicados" debe conservar el número.
+    raw = ("3 ICA radicados ante la autoridad ambiental",)
+    items = normalizer.normalize(raw)
+    assert items[0].text == "3 ICA radicados ante la autoridad ambiental"
 
 
 # --- Detección de "vacío" ---
