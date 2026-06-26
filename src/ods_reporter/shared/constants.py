@@ -64,6 +64,7 @@ NO_ACTIVITY_EXACT_MARKERS: Final[tuple[str, ...]] = (
 NO_ACTIVITY_CONTAINS: Final[tuple[str, ...]] = (
     "no se requirio",          # ...el servicio / el producto / esta actividad
     "no fue requer",           # no fue requerida / requerido / requerdida (errata)
+    "no fue requir",           # no fue requerido / requirerido (erratas)
     "no se aplico este recurso",
     "no se presto el servicio",
     "no se presento actividad",

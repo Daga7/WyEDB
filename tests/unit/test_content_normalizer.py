@@ -43,6 +43,7 @@ def test_clean_content_line(entrada: str, esperado: str) -> None:
         "En el presente periodo no se requirió el producto. Sin embargo se estuvo presto",
         "Durante el periodo de reporte la actividad no fue requerida",
         "La actividad no fue requerida durante el periodo relacionado",
+        "Durante el periodo comprendido no fue requirerido de mi servicio; sin embargo, se estuvo presta",
         "En este mes No se Aplico este Recurso No obstante esta Disponible",
         "No se ejecutaron acciones para el mes. Por lo tanto, no fue requerdida",
         "No aplica",

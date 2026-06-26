@@ -188,6 +188,12 @@ class ProcessODSUseCase:
             result.add_error(message)
             self._progress.event(EventLevel.ERROR, message)
             return None
+        except Exception as exc:  # noqa: BLE001 - robustez: un archivo no detiene el resto
+            logger.exception("Error inesperado leyendo %s", excel.name)
+            message = f"Error inesperado en '{excel.name}': {exc}"
+            result.add_error(message)
+            self._progress.event(EventLevel.ERROR, message)
+            return None
 
         self._progress.event(
             EventLevel.INFO,
@@ -199,13 +205,21 @@ class ProcessODSUseCase:
     def _insert_professional_content(
         self, professional: Professional, result: ProcessingResult
     ) -> None:
+        # Origen mostrado en errores/advertencias para poder revisar el archivo culpable.
+        origin = self._origin_label(professional)
         for activity in professional.activities:
             if not activity.has_content:
                 continue
             try:
                 insert = self._deps.word_processor.insert_activity_content(activity)
-            except ODSReporterError as exc:
-                message = f"Error al insertar la actividad {activity.ordinal}: {exc}"
+            except Exception as exc:  # noqa: BLE001 - una actividad no detiene el resto
+                logger.exception(
+                    "Error insertando actividad %s de %s", activity.ordinal, origin
+                )
+                message = (
+                    f"Error al insertar la actividad {activity.ordinal} "
+                    f"[{origin}]: {exc}"
+                )
                 result.add_error(message)
                 self._progress.event(EventLevel.ERROR, message)
                 continue
@@ -217,8 +231,17 @@ class ProcessODSUseCase:
                 result.items_written += insert.items_written
             result.entregables_unmatched += insert.entregables_unmatched
             for warning in insert.warnings:
-                result.add_warning(warning)
-                self._progress.event(EventLevel.WARNING, warning)
+                full_warning = f"{warning} [{origin}]"
+                result.add_warning(full_warning)
+                self._progress.event(EventLevel.WARNING, full_warning)
+
+    @staticmethod
+    def _origin_label(professional: Professional) -> str:
+        """Etiqueta de origen 'Profesional (archivo.xlsx)' para los mensajes."""
+        name = professional.name or "profesional desconocido"
+        if professional.source_file:
+            return f"{name} – {professional.source_file}"
+        return name
 
     # --- Cierre ---
 

@@ -74,5 +74,7 @@ class ReportFormatter:
             return
         lines.append("-" * 60)
         lines.append(f"{title} ({len(messages)})")
+        if title == "ERRORES":
+            lines.append("  (cada línea indica el archivo/profesional para revisarlo a detalle)")
         for message in messages:
             lines.append(f"  • {message}")

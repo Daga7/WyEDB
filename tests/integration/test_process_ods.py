@@ -233,6 +233,35 @@ def test_single_professional_multiple_entregables(
     assert contents[0] != contents[1]
 
 
+def test_bad_excel_reports_file_and_continues(
+    excel_fixture: Path, word_blank_fixture: Path, tmp_path: Path
+) -> None:
+    # Robustez: un Excel corrupto no detiene el resto; el error nombra el archivo.
+    bad = tmp_path / "corrupto.xlsx"
+    bad.write_bytes(b"esto no es un xlsx valido")
+
+    progress = FakeProgress()
+    use_case = _make_use_case(progress)
+    result = use_case.execute(
+        ProcessRequest(
+            word_template=word_blank_fixture,
+            excel_files=(bad, excel_fixture),  # uno malo + uno bueno
+            output_dir=tmp_path,
+            month="MAYO",
+            output_name="mixto.docx",
+        )
+    ).unwrap()
+
+    # El archivo bueno se procesó pese al malo.
+    assert result.professionals_processed == 1
+    assert result.activities_with_content > 0
+    # Hay un error y menciona el archivo culpable.
+    assert result.has_errors
+    assert any("corrupto.xlsx" in e for e in result.errors)
+    # El resumen incluye la guía y el nombre del archivo.
+    assert "corrupto.xlsx" in result.summary
+
+
 def test_invalid_input_returns_err(word_fixture: Path, tmp_path: Path) -> None:
     progress = FakeProgress()
     use_case = _make_use_case(progress)
