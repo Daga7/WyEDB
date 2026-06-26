@@ -1,0 +1,53 @@
+name: Construir ejecutable de Windows
+
+# Genera 'ODS Reporter.exe' en un runner de Windows y lo publica como artefacto.
+# Se ejecuta manualmente, al hacer push de un tag v* (release), o en pushes a main.
+
+on:
+  workflow_dispatch: {}
+  push:
+    tags:
+      - "v*"
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows-exe:
+    runs-on: windows-latest
+
+    steps:
+      - name: Descargar el código
+        uses: actions/checkout@v4
+
+      - name: Configurar Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Ejecutar pruebas
+        run: pytest -q
+
+      - name: Construir el ejecutable
+        run: pyinstaller ods_reporter.spec --noconfirm
+
+      - name: Publicar el .exe como artefacto
+        uses: actions/upload-artifact@v4
+        with:
+          name: ODS-Reporter-Windows
+          path: "dist/ODS Reporter.exe"
+          if-no-files-found: error
+
+      # Si el disparador fue un tag de versión, adjunta el .exe a la Release.
+      - name: Adjuntar a la Release (solo en tags v*)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: "dist/ODS Reporter.exe"

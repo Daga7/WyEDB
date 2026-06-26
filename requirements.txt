@@ -1,0 +1,14 @@
+# --- Dependencias de ejecución ---
+
+# Lectura de archivos Excel (.xlsx)
+openpyxl==3.1.5
+
+# Lectura y modificación de documentos Word (.docx) preservando formato
+python-docx==1.1.2
+
+# Coincidencia difusa de cadenas para emparejar actividades (numeral + texto)
+# Nota: en Python 3.14 se requiere >=3.14 (no hay wheels de 3.10.x para 3.14).
+rapidfuzz>=3.10,<4
+
+# Interfaz gráfica moderna (requiere el paquete del sistema 'tk')
+customtkinter>=5.2.2

@@ -1,0 +1,14 @@
+# --- Dependencias de desarrollo ---
+-r requirements.txt
+
+# Pruebas
+pytest==8.3.4
+
+# Análisis estático de tipos
+mypy==1.14.1
+
+# Linter / formateador
+ruff==0.9.2
+
+# Empaquetado a ejecutable
+pyinstaller==6.11.1

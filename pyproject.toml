@@ -1,0 +1,48 @@
+[project]
+name = "ods-reporter"
+version = "0.1.0"
+description = "Aplicación de escritorio para automatizar la generación de informes ODS (Excel -> Word)."
+requires-python = ">=3.11"
+authors = [{ name = "dan7el" }]
+readme = "README.md"
+
+dependencies = [
+    "openpyxl>=3.1.5",
+    "python-docx>=1.1.2",
+    "rapidfuzz>=3.10.1",
+    "customtkinter>=5.2.2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.3.4", "mypy>=1.14.1", "ruff>=0.9.2", "pyinstaller>=6.11.1"]
+
+[project.scripts]
+ods-reporter = "ods_reporter.main:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# --- Configuración de herramientas ---
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unused_ignores = true
+disallow_untyped_defs = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

@@ -1,0 +1,47 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# --- Entorno virtual ---
+.venv/
+venv/
+env/
+
+# --- Logs generados ---
+logs/
+*.log
+
+# --- Salidas de procesamiento (documentos generados) ---
+output/
+salida/
+
+# --- Archivos de prueba con datos reales (no versionar) ---
+tests/fixtures/*.xlsx
+tests/fixtures/*.docx
+
+# --- Herramientas / cachés ---
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# --- Editores / SO ---
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# --- Config local de herramientas ---
+.claude/
+
+# --- PyInstaller ---
+*.spec.bak
