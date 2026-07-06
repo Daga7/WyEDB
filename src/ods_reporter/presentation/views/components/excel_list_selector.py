@@ -14,6 +14,7 @@ from tkinter import filedialog
 
 import customtkinter as ctk
 
+from ods_reporter.presentation import theme
 from ods_reporter.presentation.views.components.excel_collection import (
     collect_from_folder,
     merge_unique,
@@ -30,7 +31,7 @@ class ExcelListSelector(ctk.CTkFrame):
         master: ctk.CTkBaseClass,
         on_change: ChangeCallback | None = None,
     ) -> None:
-        super().__init__(master)
+        super().__init__(master, fg_color="transparent")
         self._files: list[str] = []
         self._on_change = on_change
         self._buttons: list[ctk.CTkButton] = []
@@ -46,35 +47,55 @@ class ExcelListSelector(ctk.CTkFrame):
 
     def _build_header(self) -> None:
         self._title = ctk.CTkLabel(self, text="Archivos Excel (0):", anchor="w")
-        self._title.grid(row=0, column=0, padx=10, pady=(8, 2), sticky="w")
+        self._title.grid(row=0, column=0, pady=(6, 2), sticky="w")
 
     def _build_buttons(self) -> None:
         bar = ctk.CTkFrame(self, fg_color="transparent")
-        bar.grid(row=1, column=0, padx=8, pady=2, sticky="ew")
+        bar.grid(row=1, column=0, pady=2, sticky="ew")
 
         self._add_files_btn = ctk.CTkButton(
-            bar, text="Agregar archivos", width=150, command=self._on_add_files
+            bar,
+            text="Agregar archivos",
+            width=146,
+            height=30,
+            fg_color=theme.SECONDARY,
+            hover_color=theme.SECONDARY_HOVER,
+            text_color=theme.TEXT_ON_SECONDARY,
+            command=self._on_add_files,
         )
         self._add_files_btn.pack(side="left", padx=(0, 6))
 
         self._add_folder_btn = ctk.CTkButton(
-            bar, text="Agregar carpeta", width=150, command=self._on_add_folder
+            bar,
+            text="Agregar carpeta",
+            width=146,
+            height=30,
+            fg_color=theme.SECONDARY,
+            hover_color=theme.SECONDARY_HOVER,
+            text_color=theme.TEXT_ON_SECONDARY,
+            command=self._on_add_folder,
         )
         self._add_folder_btn.pack(side="left", padx=(0, 6))
 
         self._clear_btn = ctk.CTkButton(
             bar,
             text="Quitar todo",
-            width=110,
-            fg_color="#7a7a7a",
-            hover_color="#666666",
+            width=100,
+            height=30,
+            fg_color="transparent",
+            border_width=1,
+            border_color=theme.MUTED,
+            text_color=theme.MUTED,
+            hover_color=("gray92", "gray20"),
             command=self._on_clear,
         )
         self._clear_btn.pack(side="left")
 
     def _build_list(self) -> None:
-        self._list = ctk.CTkScrollableFrame(self, height=140)
-        self._list.grid(row=2, column=0, padx=8, pady=(4, 8), sticky="nsew")
+        self._list = ctk.CTkScrollableFrame(
+            self, height=132, fg_color=theme.CARD_INNER, corner_radius=8
+        )
+        self._list.grid(row=2, column=0, pady=(4, 6), sticky="nsew")
         self._list.grid_columnconfigure(0, weight=1)
 
     # --- Acciones ---
@@ -134,20 +155,22 @@ class ExcelListSelector(ctk.CTkFrame):
             self._on_change(len(self._files))
 
     def _render_row(self, index: int, path: str) -> None:
-        row = ctk.CTkFrame(self._list, fg_color=("gray92", "gray18"))
-        row.grid(row=index, column=0, padx=4, pady=2, sticky="ew")
+        row = ctk.CTkFrame(self._list, fg_color="transparent")
+        row.grid(row=index, column=0, padx=4, pady=1, sticky="ew")
         row.grid_columnconfigure(0, weight=1)
 
         ctk.CTkLabel(row, text=Path(path).name, anchor="w").grid(
-            row=0, column=0, padx=(8, 4), pady=4, sticky="w"
+            row=0, column=0, padx=(8, 4), pady=2, sticky="w"
         )
         remove_button = ctk.CTkButton(
             row,
             text="✕",
-            width=28,
-            fg_color="#b54b4b",
-            hover_color="#9e3f3f",
+            width=26,
+            height=24,
+            fg_color="transparent",
+            text_color=theme.MUTED,
+            hover_color=("gray85", "gray25"),
             command=lambda p=path: self._remove(p),
         )
-        remove_button.grid(row=0, column=1, padx=(0, 6), pady=4)
+        remove_button.grid(row=0, column=1, padx=(0, 4), pady=1)
         self._buttons.append(remove_button)

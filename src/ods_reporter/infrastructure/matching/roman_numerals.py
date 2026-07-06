@@ -26,6 +26,40 @@ _ROMAN_PATTERN = re.compile(
 )
 
 
+_INT_TO_ROMAN: tuple[tuple[int, str], ...] = (
+    (1000, "M"),
+    (900, "CM"),
+    (500, "D"),
+    (400, "CD"),
+    (100, "C"),
+    (90, "XC"),
+    (50, "L"),
+    (40, "XL"),
+    (10, "X"),
+    (9, "IX"),
+    (5, "V"),
+    (4, "IV"),
+    (1, "I"),
+)
+
+
+def int_to_roman(value: int) -> str:
+    """Convierte un entero a romano en mayúsculas (para mostrar numerales).
+
+    Fuera del rango representable (1..3999) devuelve el número en arábigo,
+    de modo que siempre haya algo legible que mostrar.
+    """
+    if not 1 <= value <= 3999:
+        return str(value)
+    pieces: list[str] = []
+    remaining = value
+    for number, symbol in _INT_TO_ROMAN:
+        while remaining >= number:
+            pieces.append(symbol)
+            remaining -= number
+    return "".join(pieces)
+
+
 def roman_to_int(value: str) -> int | None:
     """Convierte un romano (mayúsculas o minúsculas) a entero, o ``None``.
 

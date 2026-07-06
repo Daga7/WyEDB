@@ -10,6 +10,8 @@ from collections.abc import Callable
 
 import customtkinter as ctk
 
+from ods_reporter.presentation import theme
+
 BrowseCallback = Callable[[], None]
 
 
@@ -26,20 +28,29 @@ class FileSelector(ctk.CTkFrame):
         super().__init__(master, fg_color="transparent")
         self.grid_columnconfigure(1, weight=1)
 
-        self._label = ctk.CTkLabel(self, text=label, width=160, anchor="w")
+        self._label = ctk.CTkLabel(self, text=label, width=150, anchor="w")
         self._label.grid(row=0, column=0, padx=(0, 8), pady=4, sticky="w")
 
         self._value = ctk.CTkLabel(
             self,
             text=placeholder,
             anchor="w",
-            fg_color=("gray90", "gray20"),
+            fg_color=theme.CARD_INNER,
             corner_radius=6,
             padx=10,
         )
         self._value.grid(row=0, column=1, padx=(0, 8), pady=4, sticky="ew")
 
-        self._button = ctk.CTkButton(self, text="Examinar", width=110, command=on_browse)
+        self._button = ctk.CTkButton(
+            self,
+            text="Examinar",
+            width=104,
+            height=30,
+            fg_color=theme.SECONDARY,
+            hover_color=theme.SECONDARY_HOVER,
+            text_color=theme.TEXT_ON_SECONDARY,
+            command=on_browse,
+        )
         self._button.grid(row=0, column=2, pady=4)
 
         self._placeholder = placeholder

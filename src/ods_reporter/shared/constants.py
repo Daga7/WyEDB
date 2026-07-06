@@ -10,7 +10,7 @@ from typing import Final
 
 # --- Identidad de la aplicación ---
 APP_NAME: Final[str] = "ODS Reporter"
-APP_VERSION: Final[str] = "0.1.0"
+APP_VERSION: Final[str] = "1.0.0"
 
 # --- Meses del año (nombres de las pestañas del Excel, en mayúsculas) ---
 MONTHS: Final[tuple[str, ...]] = (

@@ -5,6 +5,7 @@ from __future__ import annotations
 import customtkinter as ctk
 
 from ods_reporter.application.ports.progress_port import EventLevel
+from ods_reporter.presentation import theme
 
 # Color del texto según la severidad del evento.
 _LEVEL_COLORS: dict[EventLevel, str] = {
@@ -26,15 +27,28 @@ class ConsolePanel(ctk.CTkFrame):
     """Área de texto de solo lectura con los eventos del procesamiento."""
 
     def __init__(self, master: ctk.CTkBaseClass) -> None:
-        super().__init__(master)
+        super().__init__(master, fg_color="transparent")
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
 
-        header = ctk.CTkLabel(self, text="Consola de eventos", anchor="w")
-        header.grid(row=0, column=0, padx=10, pady=(8, 4), sticky="w")
+        header = ctk.CTkLabel(
+            self,
+            text="ACTIVIDAD DEL PROCESO",
+            font=ctk.CTkFont(size=11, weight="bold"),
+            text_color=theme.MUTED,
+            anchor="w",
+        )
+        header.grid(row=0, column=0, pady=(4, 4), sticky="w")
 
-        self._textbox = ctk.CTkTextbox(self, wrap="word", font=("monospace", 12))
-        self._textbox.grid(row=1, column=0, padx=10, pady=(0, 10), sticky="nsew")
+        # Fondo oscuro fijo: los colores por severidad se leen igual en ambos temas.
+        self._textbox = ctk.CTkTextbox(
+            self,
+            wrap="word",
+            font=("monospace", 12),
+            fg_color=theme.CONSOLE_BG,
+            corner_radius=8,
+        )
+        self._textbox.grid(row=1, column=0, pady=(0, 4), sticky="nsew")
         self._textbox.configure(state="disabled")
 
         # Un tag de color por cada nivel.

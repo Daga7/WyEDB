@@ -65,9 +65,29 @@ recomienda para entregables de producción.
 
 ---
 
+## Reputación y antivirus (falsos positivos)
+
+Los ejecutables de PyInstaller sin firma suelen disparar avisos de SmartScreen,
+Chrome o el antivirus ("archivo no seguro" / "poco frecuente"). Mitigaciones
+aplicadas y pendientes:
+
+- ✅ **UPX desactivado** en el spec (`upx=False`): la compresión UPX es el
+  disparador más común de falsos positivos.
+- ✅ **Metadatos de versión** (`packaging/version_info.txt`): empresa
+  (S.G.I. S.A.S.), producto y versión visibles en Propiedades → Detalles.
+- ⬜ **Icono** (`assets/icon.ico`): el spec lo toma automáticamente si existe.
+  Generarlo desde el logo oficial (PNG → ICO multi-resolución 16/32/48/256).
+- ⬜ **Distribuir en `.zip`** (Gmail/Drive bloquean `.exe` directos) y publicar
+  por **GitHub Releases** para acumular reputación de descarga.
+- ⬜ **Firma de código** (solución definitiva): certificado a nombre de
+  S.G.I. S.A.S. — Azure Trusted Signing (mensual, reputación inmediata) o
+  certificado OV/EV clásico. Reportar además el falso positivo a Microsoft:
+  https://www.microsoft.com/en-us/wdsi/filesubmission
+
 ## Notas
 - El ejecutable incluye Python, las dependencias y los temas de CustomTkinter; el
   usuario final **no instala nada**.
 - El primer arranque del onefile puede tardar unos segundos (se descomprime en una
   carpeta temporal).
-- El archivo de log se crea junto al ejecutable, en la carpeta `logs/`.
+- El archivo de log se escribe en la carpeta de datos del usuario
+  (`%LOCALAPPDATA%\ODS Reporter\logs` en Windows), no junto al ejecutable.

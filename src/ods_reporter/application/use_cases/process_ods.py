@@ -4,16 +4,15 @@ Orquesta todo el flujo, dejando el documento original intacto y reportando
 progreso y eventos. Diseñado para ser robusto: un error en un Excel no detiene el
 procesamiento de los demás; los errores se acumulan y el proceso continúa.
 
-Flujo:
-    1. Validar entradas.
-    2. Copiar la plantilla Word a la carpeta de salida.
-    3. Abrir el Word de salida.
-    4. Por cada Excel (profesional): leer el mes, construir el dominio, insertar
-       el contenido de sus actividades (emparejando por numeral, alineando
-       entregables por texto).
-    5. Rellenar con el texto por defecto los slots que quedaron vacíos.
-    6. Auditar profesionales (sin actividades / por debajo del umbral).
-    7. Guardar el documento.
+El flujo está dividido en dos fases, para poder mostrar una **vista previa**:
+
+  1. ``plan()``: valida, abre la plantilla, lee todos los Excel y calcula qué se
+     insertaría dónde, SIN escribir nada. Devuelve un ``ODSPlan``.
+  2. ``apply()``: copia la plantilla a la salida y ejecuta el plan, aplicando las
+     decisiones del usuario sobre el contenido sin ubicación (``PlanOverrides``).
+
+``execute()`` encadena ambas fases sin decisiones manuales (comportamiento
+clásico, usado también por las pruebas de extremo a extremo).
 """
 
 from __future__ import annotations
@@ -31,6 +30,11 @@ from ods_reporter.application.ports.word_processor_port import WordProcessorPort
 from ods_reporter.application.services.professional_auditor import ProfessionalAuditor
 from ods_reporter.application.services.report_builder import ReportBuilder
 from ods_reporter.application.services.report_formatter import ReportFormatter
+from ods_reporter.application.use_cases.ods_plan import (
+    ODSPlan,
+    PlanOverrides,
+    PlannedActivity,
+)
 from ods_reporter.domain.entities.processing_result import ProcessingResult
 from ods_reporter.domain.entities.professional import Professional
 from ods_reporter.domain.exceptions import InvalidInputError, ODSReporterError
@@ -99,15 +103,104 @@ class ProcessODSUseCase:
         )
         self._progress = progress
 
-    def execute(self, request: ProcessRequest) -> Result[ProcessingResult]:
-        start = time.monotonic()
-        result = ProcessingResult()
+    # --- Fase 1: análisis (vista previa) ---
 
+    def plan(self, request: ProcessRequest) -> Result[ODSPlan]:
+        """Lee y empareja todo sin escribir: el insumo de la vista previa."""
         try:
             self._validate(request)
         except InvalidInputError as exc:
             self._progress.event(EventLevel.ERROR, str(exc))
             return Err(str(exc), exc)
+
+        try:
+            self._deps.word_processor.open(request.word_template)
+        except ODSReporterError as exc:
+            self._progress.event(EventLevel.ERROR, str(exc))
+            return Err(str(exc), exc)
+
+        overview = self._deps.word_processor.get_activities_overview()
+        self._progress.event(
+            EventLevel.INFO,
+            f"Plantilla analizada: {len(overview)} actividad(es). "
+            f"Analizando {len(request.excel_files)} archivo(s) de Excel…",
+        )
+
+        professionals: list[Professional] = []
+        planned: list[PlannedActivity] = []
+        read_errors: list[str] = []
+        cancelled = False
+        total = len(request.excel_files)
+
+        for index, excel in enumerate(request.excel_files):
+            if self._progress.is_cancelled():
+                cancelled = True
+                break
+            professional = self._read_professional(excel, request.month, read_errors)
+            self._progress.progress(index + 1, total)
+            if professional is None:
+                continue
+            planned.extend(self._plan_professional(len(professionals), professional))
+            professionals.append(professional)
+
+        if cancelled:
+            self._progress.event(EventLevel.WARNING, "Análisis cancelado por el usuario.")
+
+        return Ok(
+            ODSPlan(
+                month=request.month,
+                word_activities=tuple(overview),
+                planned=tuple(planned),
+                professionals=tuple(professionals),
+                read_errors=tuple(read_errors),
+                cancelled=cancelled,
+            )
+        )
+
+    def _plan_professional(
+        self, professional_index: int, professional: Professional
+    ) -> list[PlannedActivity]:
+        origin = self._origin_label(professional)
+        planned: list[PlannedActivity] = []
+        for activity in professional.activities:
+            if not activity.has_content:
+                continue
+            outcome = self._deps.word_processor.plan_activity_content(activity)
+            items = (
+                outcome.items_written
+                if outcome.matched
+                else len(activity.all_content_items)
+            )
+            planned.append(
+                PlannedActivity(
+                    professional_index=professional_index,
+                    professional_name=professional.name or "profesional desconocido",
+                    source_file=professional.source_file,
+                    ordinal=activity.ordinal,
+                    label=activity.label,
+                    items_count=items,
+                    matched=outcome.matched,
+                    warnings=tuple(f"{w} [{origin}]" for w in outcome.warnings),
+                )
+            )
+        return planned
+
+    # --- Fase 2: aplicación del plan ---
+
+    def apply(
+        self,
+        request: ProcessRequest,
+        plan: ODSPlan,
+        overrides: PlanOverrides | None = None,
+        *,
+        started_at: float | None = None,
+    ) -> Result[ProcessingResult]:
+        """Genera el documento ejecutando ``plan`` con las decisiones del usuario."""
+        start = started_at if started_at is not None else time.monotonic()
+        overrides = overrides or {}
+        result = ProcessingResult()
+        for error in plan.read_errors:
+            result.add_error(error)
 
         output_file = request.output_dir / request.resolved_output_name
         try:
@@ -119,18 +212,27 @@ class ProcessODSUseCase:
 
         self._progress.event(
             EventLevel.INFO,
-            f"Plantilla copiada y abierta. Procesando {len(request.excel_files)} archivo(s).",
+            f"Plantilla copiada y abierta. Generando con "
+            f"{len(plan.professionals)} profesional(es).",
         )
 
-        professionals = self._process_professionals(request, result)
+        total = len(plan.professionals)
+        for index, professional in enumerate(plan.professionals):
+            if self._progress.is_cancelled():
+                result.cancelled = True
+                break
+            result.professionals_processed += 1
+            self._insert_professional_content(
+                professional, result, professional_index=index, overrides=overrides
+            )
+            self._progress.progress(index + 1, total)
 
-        if self._progress.is_cancelled():
-            result.cancelled = True
+        if result.cancelled:
             result.elapsed_seconds = time.monotonic() - start
             self._progress.event(EventLevel.WARNING, "Proceso cancelado por el usuario.")
             return Ok(result)
 
-        self._finalize(request, result, professionals, output_file)
+        self._finalize(request, result, list(plan.professionals), output_file)
         result.elapsed_seconds = time.monotonic() - start
         self._write_report(request, result, output_file)
         self._progress.event(
@@ -138,6 +240,25 @@ class ProcessODSUseCase:
             f"Proceso completado en {result.elapsed_seconds:.1f}s. Salida: {output_file.name}",
         )
         return Ok(result)
+
+    # --- Flujo completo sin vista previa ---
+
+    def execute(self, request: ProcessRequest) -> Result[ProcessingResult]:
+        """Plan + aplicación sin decisiones manuales (flujo clásico)."""
+        start = time.monotonic()
+        plan_result = self.plan(request)
+        if plan_result.is_err():
+            return Err(plan_result.error or "Error al analizar los archivos.")
+        plan = plan_result.unwrap()
+
+        if plan.cancelled:
+            result = ProcessingResult(cancelled=True)
+            for error in plan.read_errors:
+                result.add_error(error)
+            result.elapsed_seconds = time.monotonic() - start
+            return Ok(result)
+
+        return self.apply(request, plan, {}, started_at=start)
 
     # --- Validación ---
 
@@ -154,44 +275,23 @@ class ProcessODSUseCase:
         if not request.month.strip():
             raise InvalidInputError("Debe indicarse el mes a procesar.")
 
-    # --- Procesamiento por profesional ---
-
-    def _process_professionals(
-        self, request: ProcessRequest, result: ProcessingResult
-    ) -> list[Professional]:
-        professionals: list[Professional] = []
-        total = len(request.excel_files)
-
-        for index, excel in enumerate(request.excel_files):
-            if self._progress.is_cancelled():
-                break
-
-            professional = self._read_professional(excel, request.month, result)
-            self._progress.progress(index + 1, total)
-            if professional is None:
-                continue
-
-            professionals.append(professional)
-            result.professionals_processed += 1
-            self._insert_professional_content(professional, result)
-
-        return professionals
+    # --- Lectura por profesional ---
 
     def _read_professional(
-        self, excel: Path, month: str, result: ProcessingResult
+        self, excel: Path, month: str, errors: list[str]
     ) -> Professional | None:
         try:
             raw = self._deps.excel_reader.read_month(excel, month)
             professional = self._deps.report_builder.build(raw)
         except ODSReporterError as exc:
             message = f"Error al leer '{excel.name}': {exc}"
-            result.add_error(message)
+            errors.append(message)
             self._progress.event(EventLevel.ERROR, message)
             return None
         except Exception as exc:  # noqa: BLE001 - robustez: un archivo no detiene el resto
             logger.exception("Error inesperado leyendo %s", excel.name)
             message = f"Error inesperado en '{excel.name}': {exc}"
-            result.add_error(message)
+            errors.append(message)
             self._progress.event(EventLevel.ERROR, message)
             return None
 
@@ -202,16 +302,39 @@ class ProcessODSUseCase:
         )
         return professional
 
+    # --- Inserción ---
+
     def _insert_professional_content(
-        self, professional: Professional, result: ProcessingResult
+        self,
+        professional: Professional,
+        result: ProcessingResult,
+        *,
+        professional_index: int = 0,
+        overrides: PlanOverrides | None = None,
     ) -> None:
+        overrides = overrides or {}
         # Origen mostrado en errores/advertencias para poder revisar el archivo culpable.
         origin = self._origin_label(professional)
         for activity in professional.activities:
             if not activity.has_content:
                 continue
+
+            target: int | None = None
+            key = (professional_index, activity.ordinal)
+            if key in overrides:
+                target = overrides[key]
+                if target is None:
+                    message = (
+                        f"Actividad {activity.ordinal} omitida por el usuario [{origin}]."
+                    )
+                    result.add_warning(message)
+                    self._progress.event(EventLevel.WARNING, message)
+                    continue
+
             try:
-                insert = self._deps.word_processor.insert_activity_content(activity)
+                insert = self._deps.word_processor.insert_activity_content(
+                    activity, target_ordinal=target
+                )
             except Exception as exc:  # noqa: BLE001 - una actividad no detiene el resto
                 logger.exception(
                     "Error insertando actividad %s de %s", activity.ordinal, origin

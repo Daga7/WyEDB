@@ -273,3 +273,85 @@ def test_invalid_input_returns_err(word_fixture: Path, tmp_path: Path) -> None:
     )
     result = use_case.execute(request)
     assert result.is_err()
+
+
+# --- Vista previa: fases plan y apply ---
+
+def _plan_request(
+    excel: Path, word: Path, tmp_path: Path, output_name: str
+) -> ProcessRequest:
+    return ProcessRequest(
+        word_template=word,
+        excel_files=(excel,),
+        output_dir=tmp_path,
+        month="MAYO",
+        output_name=output_name,
+    )
+
+
+def test_plan_reports_structure_without_writing(
+    excel_fixture: Path, word_blank_fixture: Path, tmp_path: Path
+) -> None:
+    use_case = _make_use_case(FakeProgress())
+    request = _plan_request(excel_fixture, word_blank_fixture, tmp_path, "plan.docx")
+
+    plan = use_case.plan(request).unwrap()
+
+    assert len(plan.professionals) == 1
+    assert len(plan.planned) == 9  # las 9 actividades con contenido de mayo
+    assert all(p.matched for p in plan.planned)
+    assert plan.unmatched == ()
+    assert len(plan.word_activities) > 0
+    assert plan.read_errors == ()
+    # La fase de plan NO genera el documento.
+    assert not (tmp_path / "plan.docx").exists()
+
+
+def test_apply_with_omit_override_skips_activity(
+    excel_fixture: Path, word_blank_fixture: Path, tmp_path: Path
+) -> None:
+    use_case = _make_use_case(FakeProgress())
+    request = _plan_request(excel_fixture, word_blank_fixture, tmp_path, "omitida.docx")
+    plan = use_case.plan(request).unwrap()
+    first = plan.planned[0]
+
+    result = use_case.apply(request, plan, {first.key: None}).unwrap()
+
+    assert result.activities_with_content == 8  # una fue omitida por el usuario
+    assert any("omitida por el usuario" in w for w in result.warnings)
+    assert (tmp_path / "omitida.docx").exists()
+
+
+def test_apply_with_redirect_override_moves_content(
+    excel_fixture: Path, word_blank_fixture: Path, tmp_path: Path
+) -> None:
+    from ods_reporter.infrastructure.word.docx_reader import DocxReader
+
+    use_case = _make_use_case(FakeProgress())
+    request = _plan_request(excel_fixture, word_blank_fixture, tmp_path, "movida.docx")
+    plan = use_case.plan(request).unwrap()
+
+    first = plan.planned[0]
+    professional = plan.professionals[first.professional_index]
+    activity = next(a for a in professional.activities if a.ordinal == first.ordinal)
+    item_text = activity.all_content_items[0].text
+    target = next(
+        o.ordinal for o in plan.word_activities if o.ordinal != first.ordinal
+    )
+
+    result = use_case.apply(request, plan, {first.key: target}).unwrap()
+
+    assert any("manualmente" in w for w in result.warnings)
+
+    document = docx.Document(str(tmp_path / "movida.docx"))
+    by_ordinal = {a.ordinal: a for a in DocxReader().read_activities(document)}
+
+    def cell_text(ordinal: int) -> str:
+        return "\n".join(
+            p.text
+            for entregable in by_ordinal[ordinal].entregables
+            for p in entregable.cell.paragraphs
+        )
+
+    assert item_text in cell_text(target)
+    assert item_text not in cell_text(first.ordinal)

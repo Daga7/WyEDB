@@ -38,16 +38,21 @@ jobs:
       - name: Construir el ejecutable
         run: pyinstaller ods_reporter.spec --noconfirm
 
-      - name: Publicar el .exe como artefacto
+      # El .zip es el formato de distribución: Gmail/Drive y los navegadores
+      # tratan mejor un .zip que un .exe suelto (menos falsos positivos).
+      - name: Empaquetar en .zip para distribución
+        run: Compress-Archive -Path "dist/ODS Reporter.exe" -DestinationPath "dist/ODS-Reporter-Windows.zip"
+
+      - name: Publicar el .exe como artefacto (uso interno)
         uses: actions/upload-artifact@v4
         with:
           name: ODS-Reporter-Windows
           path: "dist/ODS Reporter.exe"
           if-no-files-found: error
 
-      # Si el disparador fue un tag de versión, adjunta el .exe a la Release.
+      # Si el disparador fue un tag de versión, adjunta el .zip a la Release.
       - name: Adjuntar a la Release (solo en tags v*)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: "dist/ODS Reporter.exe"
+          files: "dist/ODS-Reporter-Windows.zip"

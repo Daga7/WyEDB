@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import customtkinter as ctk
 
+from ods_reporter.presentation import theme
+
 
 class ProgressPanel(ctk.CTkFrame):
     """Barra de progreso + texto de estado en tiempo real."""
@@ -12,11 +14,11 @@ class ProgressPanel(ctk.CTkFrame):
         super().__init__(master, fg_color="transparent")
         self.grid_columnconfigure(0, weight=1)
 
-        self._bar = ctk.CTkProgressBar(self)
+        self._bar = ctk.CTkProgressBar(self, height=6, progress_color=theme.GREEN)
         self._bar.grid(row=0, column=0, padx=0, pady=(0, 4), sticky="ew")
         self._bar.set(0)
 
-        self._status = ctk.CTkLabel(self, text="Listo.", anchor="w")
+        self._status = ctk.CTkLabel(self, text="Listo.", anchor="w", text_color=theme.MUTED)
         self._status.grid(row=1, column=0, sticky="ew")
 
     def set_progress(self, current: int, total: int) -> None:

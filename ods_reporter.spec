@@ -8,11 +8,20 @@ Uso:
     pyinstaller ods_reporter.spec
 """
 
+import os
+
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 # CustomTkinter incluye temas/imágenes que deben empaquetarse como datos.
 datas = collect_data_files("customtkinter")
 hiddenimports = collect_submodules("customtkinter")
+
+# Icono y metadatos de versión (Windows). Opcionales: si el archivo no existe,
+# se omiten sin romper la compilación en otros sistemas.
+_icon = "assets/icon.ico" if os.path.exists("assets/icon.ico") else None
+_version_file = (
+    "packaging/version_info.txt" if os.path.exists("packaging/version_info.txt") else None
+)
 
 block_cipher = None
 
@@ -45,7 +54,8 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    # UPX desactivado: la compresión dispara falsos positivos de antivirus.
+    upx=False,
     upx_exclude=[],
     runtime_tmpdir=None,
     console=False,  # sin ventana de consola (aplicación de escritorio)
@@ -54,5 +64,6 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=None,
+    icon=_icon,
+    version=_version_file,
 )

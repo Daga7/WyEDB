@@ -1,37 +1,38 @@
-"""Hilo de trabajo que ejecuta el caso de uso sin congelar la interfaz."""
+"""Hilo de trabajo que ejecuta una tarea del caso de uso sin congelar la interfaz.
+
+Es genérico: recibe una función sin argumentos que devuelve un ``Result`` (la
+fase de análisis o la de generación) y avisa al terminar por el callback.
+"""
 
 from __future__ import annotations
 
 import logging
 import threading
 from collections.abc import Callable
+from typing import Generic, TypeVar
 
-from ods_reporter.application.use_cases.process_ods import ProcessODSUseCase, ProcessRequest
-from ods_reporter.domain.entities.processing_result import ProcessingResult
 from ods_reporter.shared.result import Err, Result
 
 logger = logging.getLogger(__name__)
 
-DoneCallback = Callable[[Result[ProcessingResult]], None]
+T = TypeVar("T")
 
 
-class ProcessingWorker(threading.Thread):
-    """Ejecuta ``ProcessODSUseCase`` en segundo plano y avisa al terminar."""
+class ProcessingWorker(threading.Thread, Generic[T]):
+    """Ejecuta una tarea en segundo plano y avisa al terminar."""
 
     def __init__(
         self,
-        use_case: ProcessODSUseCase,
-        request: ProcessRequest,
-        on_done: DoneCallback,
+        task: Callable[[], Result[T]],
+        on_done: Callable[[Result[T]], None],
     ) -> None:
         super().__init__(daemon=True)
-        self._use_case = use_case
-        self._request = request
+        self._task = task
         self._on_done = on_done
 
     def run(self) -> None:
         try:
-            result = self._use_case.execute(self._request)
+            result = self._task()
         except Exception as exc:  # red de seguridad: nunca debe propagar al hilo
             logger.exception("Error inesperado en el procesamiento")
             result = Err(f"Error inesperado: {exc}", exc)

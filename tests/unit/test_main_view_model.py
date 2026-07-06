@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 
 from ods_reporter.application.ports.progress_port import EventLevel
+from ods_reporter.application.use_cases.ods_plan import ODSPlan
 from ods_reporter.domain.entities.processing_result import ProcessingResult
 from ods_reporter.presentation.view_models.main_view_model import FormInputs, MainViewModel
 from ods_reporter.presentation.workers.gui_progress import (
@@ -85,38 +86,73 @@ def test_validate_rejects_wrong_extensions(tmp_path: Path) -> None:
 
 # --- ViewModel: arranque con caso de uso falso ---
 
+def _empty_plan(month: str = "MAYO") -> ODSPlan:
+    return ODSPlan(
+        month=month,
+        word_activities=(),
+        planned=(),
+        professionals=(),
+    )
+
+
 class _FakeUseCase:
     def __init__(self, progress) -> None:  # type: ignore[no-untyped-def]
         self._progress = progress
 
-    def execute(self, request) -> Result[ProcessingResult]:  # type: ignore[no-untyped-def]
-        self._progress.event(EventLevel.INFO, "procesando")
+    def plan(self, request) -> Result[ODSPlan]:  # type: ignore[no-untyped-def]
+        self._progress.event(EventLevel.INFO, "analizando")
         self._progress.progress(1, 1)
+        return Ok(_empty_plan(request.month))
+
+    def apply(self, request, plan, overrides=None):  # type: ignore[no-untyped-def]
+        self._progress.event(EventLevel.INFO, "generando")
         return Ok(ProcessingResult(professionals_processed=1))
 
 
-def test_start_runs_worker_and_calls_done(tmp_path: Path) -> None:
-    vm = MainViewModel(use_case_factory=_FakeUseCase)  # type: ignore[arg-type]
-    received: list[Result[ProcessingResult]] = []
-
-    errors = vm.start(_valid_inputs(tmp_path), on_done=received.append)
-    assert errors == []
-
-    # Esperar a que el worker termine.
+def _wait_until_idle(vm: MainViewModel) -> None:
     deadline = time.time() + 5
     while vm.is_running and time.time() < deadline:
         time.sleep(0.01)
 
+
+def test_start_runs_worker_and_delivers_plan(tmp_path: Path) -> None:
+    vm = MainViewModel(use_case_factory=_FakeUseCase)  # type: ignore[arg-type]
+    received: list[Result[ODSPlan]] = []
+
+    errors = vm.start(_valid_inputs(tmp_path), on_plan_ready=received.append)
+    assert errors == []
+    _wait_until_idle(vm)
+
     assert vm.is_running is False
     assert len(received) == 1
     assert received[0].is_ok()
-    assert received[0].unwrap().professionals_processed == 1
+    assert received[0].unwrap().month == "MAYO"
     # Los eventos quedaron en la cola para que la vista los consuma.
     assert not vm.progress.queue.empty()
 
 
+def test_generate_after_plan_calls_done(tmp_path: Path) -> None:
+    vm = MainViewModel(use_case_factory=_FakeUseCase)  # type: ignore[arg-type]
+    plans: list[Result[ODSPlan]] = []
+    vm.start(_valid_inputs(tmp_path), on_plan_ready=plans.append)
+    _wait_until_idle(vm)
+
+    done: list[Result[ProcessingResult]] = []
+    assert vm.generate(plans[0].unwrap(), {}, on_done=done.append) is True
+    _wait_until_idle(vm)
+
+    assert len(done) == 1
+    assert done[0].is_ok()
+    assert done[0].unwrap().professionals_processed == 1
+
+
+def test_generate_without_previous_plan_is_rejected() -> None:
+    vm = MainViewModel(use_case_factory=_FakeUseCase)  # type: ignore[arg-type]
+    assert vm.generate(_empty_plan(), {}, on_done=lambda r: None) is False
+
+
 def test_start_blocked_by_validation_errors() -> None:
     vm = MainViewModel(use_case_factory=_FakeUseCase)  # type: ignore[arg-type]
-    errors = vm.start(FormInputs(), on_done=lambda r: None)
+    errors = vm.start(FormInputs(), on_plan_ready=lambda r: None)
     assert errors
     assert vm.is_running is False

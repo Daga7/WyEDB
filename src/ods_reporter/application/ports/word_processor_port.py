@@ -15,7 +15,7 @@ from ods_reporter.domain.entities.activity import Activity
 
 @dataclass(frozen=True, slots=True)
 class ActivityInsertResult:
-    """Resultado de insertar una actividad en el Word."""
+    """Resultado de insertar (o planear) una actividad en el Word."""
 
     ordinal: int
     matched: bool
@@ -23,6 +23,15 @@ class ActivityInsertResult:
     entregables_matched: int
     entregables_unmatched: int
     warnings: tuple[str, ...] = field(default_factory=tuple)
+
+
+@dataclass(frozen=True, slots=True)
+class WordActivityOverview:
+    """Vista resumida de una actividad del Word (para la vista previa)."""
+
+    ordinal: int
+    label: str
+    entregable_count: int
 
 
 class WordProcessorPort(Protocol):
@@ -36,9 +45,20 @@ class WordProcessorPort(Protocol):
         """Devuelve los numerales de las actividades presentes en el documento."""
         ...
 
-    def insert_activity_content(self, activity: Activity) -> ActivityInsertResult:
+    def get_activities_overview(self) -> list[WordActivityOverview]:
+        """Devuelve numeral, título y cantidad de entregables de cada actividad."""
+        ...
+
+    def plan_activity_content(self, activity: Activity) -> ActivityInsertResult:
+        """Calcula qué ocurriría al insertar ``activity``, sin escribir nada."""
+        ...
+
+    def insert_activity_content(
+        self, activity: Activity, target_ordinal: int | None = None
+    ) -> ActivityInsertResult:
         """Inserta el contenido de ``activity`` (emparejando por numeral y
-        alineando entregables por texto). Devuelve el detalle de lo ocurrido.
+        alineando entregables por texto). Con ``target_ordinal`` se fuerza el
+        destino (reasignación manual). Devuelve el detalle de lo ocurrido.
         """
         ...
 

@@ -3,6 +3,10 @@
 No conoce tkinter: valida las entradas, construye la petición y coordina el hilo
 de trabajo. La vista lo consulta y refleja su estado. Así la lógica de la interfaz
 es testeable sin abrir una ventana.
+
+El flujo tiene dos fases: ``start()`` analiza los archivos y produce un plan
+(vista previa); ``generate()`` aplica ese plan —con las decisiones del usuario—
+y genera el documento.
 """
 
 from __future__ import annotations
@@ -11,6 +15,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ods_reporter.application.use_cases.ods_plan import ODSPlan, PlanOverrides
 from ods_reporter.application.use_cases.process_ods import ProcessODSUseCase, ProcessRequest
 from ods_reporter.domain.entities.processing_result import ProcessingResult
 from ods_reporter.presentation.workers.gui_progress import GuiProgress
@@ -19,6 +24,7 @@ from ods_reporter.shared.constants import EXCEL_EXTENSIONS, MONTHS, WORD_EXTENSI
 from ods_reporter.shared.result import Result
 
 UseCaseFactory = Callable[[GuiProgress], ProcessODSUseCase]
+PlanCallback = Callable[[Result[ODSPlan]], None]
 DoneCallback = Callable[[Result[ProcessingResult]], None]
 
 
@@ -33,12 +39,14 @@ class FormInputs:
 
 
 class MainViewModel:
-    """Coordina la validación, el arranque y la cancelación del procesamiento."""
+    """Coordina la validación, el análisis, la generación y la cancelación."""
 
     def __init__(self, use_case_factory: UseCaseFactory) -> None:
         self._factory = use_case_factory
         self.progress = GuiProgress()
-        self._worker: ProcessingWorker | None = None
+        self._worker: ProcessingWorker[ODSPlan] | ProcessingWorker[ProcessingResult] | None = None
+        self._use_case: ProcessODSUseCase | None = None
+        self._request: ProcessRequest | None = None
         self.is_running = False
 
     @property
@@ -81,8 +89,8 @@ class MainViewModel:
             month=inputs.month,
         )
 
-    def start(self, inputs: FormInputs, on_done: DoneCallback) -> list[str]:
-        """Valida e inicia el procesamiento en segundo plano.
+    def start(self, inputs: FormInputs, on_plan_ready: PlanCallback) -> list[str]:
+        """Valida e inicia el ANÁLISIS (fase de plan) en segundo plano.
 
         Devuelve la lista de errores de validación; si no está vacía, no arranca.
         """
@@ -91,17 +99,43 @@ class MainViewModel:
             return errors
 
         self.progress.reset()
-        request = self.build_request(inputs)
-        use_case = self._factory(self.progress)
+        self._request = self.build_request(inputs)
+        self._use_case = self._factory(self.progress)
         self.is_running = True
+
+        use_case, request = self._use_case, self._request
+
+        def done(result: Result[ODSPlan]) -> None:
+            self.is_running = False
+            on_plan_ready(result)
+
+        self._worker = ProcessingWorker(lambda: use_case.plan(request), done)
+        self._worker.start()
+        return []
+
+    def generate(
+        self, plan: ODSPlan, overrides: PlanOverrides, on_done: DoneCallback
+    ) -> bool:
+        """Aplica el plan confirmado por el usuario y genera el documento.
+
+        Devuelve ``False`` si no hay un análisis previo o ya hay un proceso activo.
+        """
+        if self.is_running or self._use_case is None or self._request is None:
+            return False
+
+        self.progress.reset()
+        self.is_running = True
+        use_case, request = self._use_case, self._request
 
         def done(result: Result[ProcessingResult]) -> None:
             self.is_running = False
             on_done(result)
 
-        self._worker = ProcessingWorker(use_case, request, done)
+        self._worker = ProcessingWorker(
+            lambda: use_case.apply(request, plan, overrides), done
+        )
         self._worker.start()
-        return []
+        return True
 
     def cancel(self) -> None:
         if self.is_running:
