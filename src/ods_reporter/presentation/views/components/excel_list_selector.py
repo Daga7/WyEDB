@@ -1,9 +1,9 @@
-"""Selector de múltiples archivos Excel con lista acumulable.
+"""Selector de múltiples archivos Excel con lista acumulable (estilo tarjeta).
 
 Permite agregar archivos sueltos (de cualquier carpeta) o una carpeta completa,
-acumulando la selección, mostrando la lista y permitiendo quitar elementos. Pensado
-para el caso real de 10-30 Excel (uno por profesional), posiblemente en carpetas
-distintas.
+acumulando la selección, mostrando cada archivo como una fila con su estado y
+permitiendo quitar elementos. Pensado para el caso real de 10-30 Excel (uno por
+profesional), posiblemente en carpetas distintas.
 """
 
 from __future__ import annotations
@@ -36,39 +36,54 @@ class ExcelListSelector(ctk.CTkFrame):
         self._on_change = on_change
         self._buttons: list[ctk.CTkButton] = []
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(2, weight=1)
+        self.grid_rowconfigure(1, weight=1)
 
         self._build_header()
-        self._build_buttons()
         self._build_list()
+        self._build_footer_buttons()
         self._refresh()
 
     # --- Construcción ---
 
     def _build_header(self) -> None:
-        self._title = ctk.CTkLabel(self, text="Archivos Excel (0):", anchor="w")
-        self._title.grid(row=0, column=0, pady=(6, 2), sticky="w")
+        header = ctk.CTkFrame(self, fg_color="transparent")
+        header.grid(row=0, column=0, pady=(0, 6), sticky="ew")
+        header.grid_columnconfigure(0, weight=1)
 
-    def _build_buttons(self) -> None:
-        bar = ctk.CTkFrame(self, fg_color="transparent")
-        bar.grid(row=1, column=0, pady=2, sticky="ew")
+        self._title = ctk.CTkLabel(
+            header,
+            text="📊  Archivos Excel cargados (0)",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            anchor="w",
+        )
+        self._title.grid(row=0, column=0, sticky="w")
 
         self._add_files_btn = ctk.CTkButton(
-            bar,
-            text="Agregar archivos",
-            width=146,
-            height=30,
-            fg_color=theme.SECONDARY,
-            hover_color=theme.SECONDARY_HOVER,
-            text_color=theme.TEXT_ON_SECONDARY,
+            header,
+            text="+  Agregar archivos",
+            width=150,
+            height=32,
+            fg_color=theme.PRIMARY,
+            hover_color=theme.PRIMARY_HOVER,
             command=self._on_add_files,
         )
-        self._add_files_btn.pack(side="left", padx=(0, 6))
+        self._add_files_btn.grid(row=0, column=1, sticky="e")
+
+    def _build_list(self) -> None:
+        self._list = ctk.CTkScrollableFrame(
+            self, height=170, fg_color=theme.CARD_INNER, corner_radius=10
+        )
+        self._list.grid(row=1, column=0, sticky="nsew")
+        self._list.grid_columnconfigure(0, weight=1)
+
+    def _build_footer_buttons(self) -> None:
+        bar = ctk.CTkFrame(self, fg_color="transparent")
+        bar.grid(row=2, column=0, pady=(8, 0), sticky="ew")
 
         self._add_folder_btn = ctk.CTkButton(
             bar,
-            text="Agregar carpeta",
-            width=146,
+            text="📁  Agregar carpeta",
+            width=150,
             height=30,
             fg_color=theme.SECONDARY,
             hover_color=theme.SECONDARY_HOVER,
@@ -79,24 +94,17 @@ class ExcelListSelector(ctk.CTkFrame):
 
         self._clear_btn = ctk.CTkButton(
             bar,
-            text="Quitar todo",
-            width=100,
+            text="🗑  Quitar todo",
+            width=120,
             height=30,
             fg_color="transparent",
             border_width=1,
-            border_color=theme.MUTED,
+            border_color=theme.BORDER,
             text_color=theme.MUTED,
-            hover_color=("gray92", "gray20"),
+            hover_color=theme.SECONDARY,
             command=self._on_clear,
         )
         self._clear_btn.pack(side="left")
-
-    def _build_list(self) -> None:
-        self._list = ctk.CTkScrollableFrame(
-            self, height=132, fg_color=theme.CARD_INNER, corner_radius=8
-        )
-        self._list.grid(row=2, column=0, pady=(4, 6), sticky="nsew")
-        self._list.grid_columnconfigure(0, weight=1)
 
     # --- Acciones ---
 
@@ -136,7 +144,7 @@ class ExcelListSelector(ctk.CTkFrame):
             remove_button.configure(state=state)
 
     def _refresh(self) -> None:
-        self._title.configure(text=f"Archivos Excel ({len(self._files)}):")
+        self._title.configure(text=f"📊  Archivos Excel cargados ({len(self._files)})")
         for child in self._list.winfo_children():
             child.destroy()
         self._buttons = []
@@ -145,8 +153,8 @@ class ExcelListSelector(ctk.CTkFrame):
             ctk.CTkLabel(
                 self._list,
                 text="Sin archivos. Usa «Agregar archivos» o «Agregar carpeta».",
-                text_color=("gray45", "gray60"),
-            ).grid(row=0, column=0, padx=8, pady=8, sticky="w")
+                text_color=theme.MUTED,
+            ).grid(row=0, column=0, padx=10, pady=12, sticky="w")
         else:
             for index, path in enumerate(self._files):
                 self._render_row(index, path)
@@ -155,13 +163,22 @@ class ExcelListSelector(ctk.CTkFrame):
             self._on_change(len(self._files))
 
     def _render_row(self, index: int, path: str) -> None:
-        row = ctk.CTkFrame(self._list, fg_color="transparent")
-        row.grid(row=index, column=0, padx=4, pady=1, sticky="ew")
+        row = ctk.CTkFrame(self._list, fg_color=theme.CARD, corner_radius=8)
+        row.grid(row=index, column=0, padx=6, pady=3, sticky="ew")
         row.grid_columnconfigure(0, weight=1)
 
         ctk.CTkLabel(row, text=Path(path).name, anchor="w").grid(
-            row=0, column=0, padx=(8, 4), pady=2, sticky="w"
+            row=0, column=0, padx=(10, 4), pady=6, sticky="w"
         )
+        ctk.CTkLabel(
+            row,
+            text="● Válido",
+            font=ctk.CTkFont(size=11),
+            fg_color=theme.SUCCESS_CHIP_BG,
+            text_color=theme.SUCCESS_CHIP_TEXT,
+            corner_radius=8,
+            padx=8,
+        ).grid(row=0, column=1, padx=4, pady=6)
         remove_button = ctk.CTkButton(
             row,
             text="✕",
@@ -169,8 +186,8 @@ class ExcelListSelector(ctk.CTkFrame):
             height=24,
             fg_color="transparent",
             text_color=theme.MUTED,
-            hover_color=("gray85", "gray25"),
+            hover_color=theme.SECONDARY,
             command=lambda p=path: self._remove(p),
         )
-        remove_button.grid(row=0, column=1, padx=(0, 4), pady=1)
+        remove_button.grid(row=0, column=2, padx=(0, 6), pady=4)
         self._buttons.append(remove_button)

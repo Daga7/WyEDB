@@ -1,86 +1,102 @@
-"""Ventana principal de la aplicación.
+"""Ventana principal de la aplicación (shell con navegación lateral).
 
-Ensambla los componentes y conecta los eventos de la interfaz con el ViewModel.
-Consume los mensajes del hilo de trabajo desde el hilo principal mediante un
-sondeo periódico de la cola (``after``), de forma segura para tkinter.
+Estructura: barra lateral (logo + módulos) y un área principal con cabecera,
+indicador de pasos y dos vistas intercambiables:
 
-Flujo: Revisar y generar → análisis en segundo plano → ventana de vista previa
-(con reasignación del contenido sin ubicación) → generación → resumen.
+- **Nuevo informe**: carga de archivos, configuración y procesamiento.
+- **Resumen detallado**: revisión del análisis (con reasignación del contenido
+  sin ubicación), panel de resumen/auditoría y generación del informe.
+
+La ventana orquesta el ViewModel y consume los mensajes del hilo de trabajo
+desde el hilo principal mediante un sondeo periódico de la cola (``after``).
 """
 
 from __future__ import annotations
 
+import queue
 from pathlib import Path
 from tkinter import filedialog, messagebox
 
 import customtkinter as ctk
 
 from ods_reporter.application.ports.progress_port import EventLevel
-from ods_reporter.application.use_cases.ods_plan import ODSPlan, PlanOverrides
-from ods_reporter.domain.entities.processing_result import ProcessingResult
+from ods_reporter.application.services.professional_auditor import ProfessionalAuditor
+from ods_reporter.application.use_cases.ods_plan import ODSPlan
+from ods_reporter.domain.entities.processing_result import (
+    ProcessingResult,
+    ProfessionalAudit,
+)
 from ods_reporter.presentation import branding, theme
 from ods_reporter.presentation.system_open import open_path
 from ods_reporter.presentation.view_models.main_view_model import FormInputs, MainViewModel
-from ods_reporter.presentation.views.components.console_panel import ConsolePanel
-from ods_reporter.presentation.views.components.excel_list_selector import ExcelListSelector
-from ods_reporter.presentation.views.components.file_selector import FileSelector
-from ods_reporter.presentation.views.components.progress_panel import ProgressPanel
-from ods_reporter.presentation.views.preview_dialog import PreviewDialog
+from ods_reporter.presentation.views.components.sidebar import NEW_REPORT, REVIEW, Sidebar
+from ods_reporter.presentation.views.components.stepper import Stepper, StepState
+from ods_reporter.presentation.views.new_report_view import NewReportView
+from ods_reporter.presentation.views.review_view import ReviewView
 from ods_reporter.presentation.workers.gui_progress import EventMessage, ProgressMessage
 from ods_reporter.shared.constants import APP_NAME, APP_VERSION
 from ods_reporter.shared.result import Result
 
 _POLL_INTERVAL_MS = 120
 
+_STEPS = ["Plantilla", "Excel", "Configuración", "Validación", "Generar"]
+
 
 class MainWindow(ctk.CTk):
     """Ventana principal (vista) de ODS Reporter."""
 
     def __init__(self, view_model: MainViewModel) -> None:
-        super().__init__()
+        super().__init__(fg_color=theme.BG)
         self._vm = view_model
         self._inputs = FormInputs()
+        self._plan: ODSPlan | None = None
+        self._audit: ProfessionalAudit | None = None
+        self._result: ProcessingResult | None = None
+        self._phase = "idle"  # idle | planning | review | applying | done
+        # Resultados llegados desde el hilo de trabajo. En Python 3.13+ tkinter
+        # no permite llamar ``after`` desde otro hilo: el worker solo ENCOLA y
+        # el sondeo del hilo principal despacha.
+        self._pending: queue.Queue[tuple[str, object]] = queue.Queue()
 
         self.title(f"{APP_NAME} v{APP_VERSION}")
-        self.geometry("900x740")
-        self.minsize(820, 660)
-        self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(2, weight=1)
+        self.geometry("1280x820")
+        self.minsize(1140, 700)
+        self.grid_columnconfigure(1, weight=1)
+        self.grid_rowconfigure(0, weight=1)
         branding.apply_window_icon(self)
 
-        self._build_header()
-        self._build_form()
-        self._build_console()
-        self._build_footer()
+        self._sidebar = Sidebar(self, on_select=self._on_select_module)
+        self._sidebar.grid(row=0, column=0, sticky="nsw")
+
+        self._build_main_area()
+        self._refresh()
 
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
-    # --- Construcción de la interfaz ---
+    # --- Construcción ---
 
-    def _build_header(self) -> None:
-        header = ctk.CTkFrame(self, fg_color="transparent")
-        header.grid(row=0, column=0, padx=24, pady=(18, 10), sticky="ew")
-        header.grid_columnconfigure(1, weight=1)
+    def _build_main_area(self) -> None:
+        main = ctk.CTkFrame(self, fg_color="transparent")
+        main.grid(row=0, column=1, sticky="nsew", padx=22, pady=(16, 18))
+        main.grid_columnconfigure(0, weight=1)
+        main.grid_rowconfigure(2, weight=1)
 
-        # Logo S.G.I. a la izquierda (si el recurso está disponible).
-        self._logo_image = branding.load_logo(height=44)
-        if self._logo_image is not None:
-            ctk.CTkLabel(header, image=self._logo_image, text="").grid(
-                row=0, column=0, sticky="w", padx=(0, 14)
-            )
-
+        # Cabecera
+        header = ctk.CTkFrame(main, fg_color="transparent")
+        header.grid(row=0, column=0, sticky="ew")
+        header.grid_columnconfigure(0, weight=1)
         titles = ctk.CTkFrame(header, fg_color="transparent")
-        titles.grid(row=0, column=1, sticky="w")
+        titles.grid(row=0, column=0, sticky="w")
         ctk.CTkLabel(
-            titles, text=APP_NAME, font=ctk.CTkFont(size=21, weight="bold")
+            titles,
+            text="Automatización de informes ambientales",
+            font=ctk.CTkFont(size=20, weight="bold"),
         ).pack(anchor="w")
         ctk.CTkLabel(
             titles,
             text="Del Excel de cada profesional al informe Word oficial.",
             text_color=theme.MUTED,
         ).pack(anchor="w")
-
-        # Selector de tema (claro/oscuro/sistema), discreto.
         self._theme_menu = ctk.CTkOptionMenu(
             header,
             values=["Sistema", "Claro", "Oscuro"],
@@ -92,85 +108,48 @@ class MainWindow(ctk.CTk):
             text_color=theme.TEXT_ON_SECONDARY,
             command=self._on_change_theme,
         )
-        self._theme_menu.grid(row=0, column=2, sticky="ne")
+        self._theme_menu.grid(row=0, column=1, sticky="ne")
 
-    @staticmethod
-    def _on_change_theme(choice: str) -> None:
-        ctk.set_appearance_mode({"Claro": "light", "Oscuro": "dark"}.get(choice, "system"))
+        # Pasos del flujo
+        self._stepper = Stepper(main, _STEPS)
+        self._stepper.grid(row=1, column=0, pady=(14, 12), sticky="ew")
 
-    def _build_form(self) -> None:
-        form = ctk.CTkFrame(self, fg_color=theme.CARD, corner_radius=12)
-        form.grid(row=1, column=0, padx=24, pady=4, sticky="ew")
-        form.grid_columnconfigure(0, weight=1)
+        # Contenedor de vistas
+        container = ctk.CTkFrame(main, fg_color="transparent")
+        container.grid(row=2, column=0, sticky="nsew")
+        container.grid_columnconfigure(0, weight=1)
+        container.grid_rowconfigure(0, weight=1)
 
-        self._word_selector = FileSelector(
-            form, "Plantilla Word (.docx):", self._browse_word
+        self._new_report = NewReportView(
+            container,
+            months=self._vm.months,
+            on_browse_word=self._browse_word,
+            on_browse_output=self._browse_output,
+            on_process=self._on_process,
+            on_cancel=self._on_cancel,
+            on_inputs_changed=self._refresh,
         )
-        self._word_selector.grid(row=0, column=0, padx=14, pady=(14, 2), sticky="ew")
+        self._new_report.grid(row=0, column=0, sticky="nsew")
 
-        self._excel_selector = ExcelListSelector(form)
-        self._excel_selector.grid(row=1, column=0, padx=14, pady=4, sticky="ew")
-
-        self._output_selector = FileSelector(
-            form, "Carpeta de salida:", self._browse_output
+        self._review = ReviewView(
+            container,
+            on_back=lambda: self._sidebar.select(NEW_REPORT),
+            on_generate=self._on_generate,
+            on_open_folder=self._open_output_folder,
+            on_new_report=lambda: self._sidebar.select(NEW_REPORT),
         )
-        self._output_selector.grid(row=2, column=0, padx=14, pady=2, sticky="ew")
+        self._review.grid(row=0, column=0, sticky="nsew")
+        self._review.grid_remove()
 
-        month_row = ctk.CTkFrame(form, fg_color="transparent")
-        month_row.grid(row=3, column=0, padx=14, pady=(2, 14), sticky="ew")
-        ctk.CTkLabel(month_row, text="Mes a procesar:", width=150, anchor="w").pack(
-            side="left", padx=(0, 8)
-        )
-        self._month_var = ctk.StringVar(value="")
-        self._month_menu = ctk.CTkOptionMenu(
-            month_row,
-            values=list(self._vm.months),
-            variable=self._month_var,
-            width=190,
-            fg_color=theme.SECONDARY,
-            button_color=theme.PRIMARY,
-            button_hover_color=theme.PRIMARY_HOVER,
-            text_color=theme.TEXT_ON_SECONDARY,
-        )
-        self._month_menu.pack(side="left")
+    # --- Navegación ---
 
-    def _build_console(self) -> None:
-        self._progress = ProgressPanel(self)
-        self._progress.grid(row=3, column=0, padx=24, pady=(8, 4), sticky="ew")
-
-        self._console = ConsolePanel(self)
-        self._console.grid(row=2, column=0, padx=24, pady=8, sticky="nsew")
-
-    def _build_footer(self) -> None:
-        footer = ctk.CTkFrame(self, fg_color="transparent")
-        footer.grid(row=4, column=0, padx=24, pady=(4, 18), sticky="ew")
-        footer.grid_columnconfigure(0, weight=1)
-
-        self._start_button = ctk.CTkButton(
-            footer,
-            text="Revisar y generar…",
-            width=180,
-            height=38,
-            fg_color=theme.PRIMARY,
-            hover_color=theme.PRIMARY_HOVER,
-            command=self._on_start,
-        )
-        self._start_button.grid(row=0, column=1, padx=(0, 8))
-
-        self._cancel_button = ctk.CTkButton(
-            footer,
-            text="Cancelar",
-            width=130,
-            height=38,
-            fg_color="transparent",
-            border_width=1,
-            border_color=theme.DANGER,
-            text_color=theme.DANGER,
-            hover_color=("gray92", "gray20"),
-            command=self._on_cancel,
-            state="disabled",
-        )
-        self._cancel_button.grid(row=0, column=2)
+    def _on_select_module(self, key: str) -> None:
+        if key == NEW_REPORT:
+            self._review.grid_remove()
+            self._new_report.grid()
+        else:
+            self._new_report.grid_remove()
+            self._review.grid()
 
     # --- Diálogos de selección ---
 
@@ -181,114 +160,204 @@ class MainWindow(ctk.CTk):
         )
         if path:
             self._inputs.word_template = path
-            self._word_selector.set_value(_short(path))
+            self._new_report.set_template(Path(path).name)
+            self._refresh()
 
     def _browse_output(self) -> None:
         path = filedialog.askdirectory(title="Selecciona la carpeta de salida")
         if path:
             self._inputs.output_dir = path
-            self._output_selector.set_value(_short(path))
+            self._new_report.set_output(_short(path))
+            self._refresh()
 
-    # --- Acciones ---
+    # --- Fase 1: análisis ---
 
-    def _on_start(self) -> None:
-        self._inputs.month = self._month_var.get()
-        self._inputs.excel_files = self._excel_selector.get_files()
-        self._console.clear()
-        self._progress.reset()
+    def _on_process(self) -> None:
+        self._inputs.month = self._new_report.month_var.get()
+        self._inputs.excel_files = self._new_report.excel_selector.get_files()
+        self._new_report.console.clear()
+        self._new_report.progress.reset()
 
         errors = self._vm.start(self._inputs, on_plan_ready=self._on_plan_ready)
         if errors:
             messagebox.showwarning("Faltan datos", "\n".join(errors))
             return
 
+        self._plan = None
+        self._result = None
+        self._phase = "planning"
         self._set_running(True)
+        self._refresh()
         self._poll()
 
-    def _on_cancel(self) -> None:
-        self._vm.cancel()
-        self._console.append(EventLevel.WARNING, "Cancelación solicitada…")
-        self._cancel_button.configure(state="disabled")
-
-    # --- Fase 1: análisis y vista previa ---
-
     def _on_plan_ready(self, result: Result[ODSPlan]) -> None:
-        # Se ejecuta desde el hilo de trabajo: se delega al hilo principal.
-        self.after(0, lambda: self._handle_plan(result))
+        # Se ejecuta desde el hilo de trabajo: solo encola (sin tocar tkinter).
+        self._pending.put(("plan", result))
 
     def _handle_plan(self, result: Result[ODSPlan]) -> None:
         self._drain_queue()
         self._set_running(False)
         if result.is_err():
-            self._console.append(EventLevel.ERROR, result.error or "Error desconocido")
+            self._phase = "idle"
+            self._refresh()
             messagebox.showerror("Error", result.error or "Ocurrió un error.")
             return
 
         plan = result.unwrap()
         if plan.cancelled:
-            self._progress.set_status("Análisis cancelado.")
+            self._phase = "idle"
+            self._refresh()
+            self._new_report.progress.set_status("Análisis cancelado.")
             return
 
-        self._progress.set_status("Análisis completo. Revisa la vista previa.")
-        PreviewDialog(self, plan, on_confirm=self._start_generation)
+        self._plan = plan
+        self._audit = ProfessionalAuditor().audit(list(plan.professionals))
+        self._phase = "review"
+        self._review.populate(plan, self._audit)
+        self._refresh()
+        self._new_report.progress.set_status("Análisis completo. Revisa el resumen detallado.")
+        self._sidebar.select(REVIEW)
 
     # --- Fase 2: generación ---
 
-    def _start_generation(self, plan: ODSPlan, overrides: PlanOverrides) -> None:
-        if not self._vm.generate(plan, overrides, on_done=self._on_done):
+    def _on_generate(self) -> None:
+        if self._plan is None:
             return
+        overrides = self._review.get_overrides()
+        if not self._vm.generate(self._plan, overrides, on_done=self._on_done):
+            return
+        self._phase = "applying"
         self._set_running(True)
+        self._review.set_generating(True)
+        self._refresh()
         self._poll()
 
     def _on_done(self, result: Result[ProcessingResult]) -> None:
-        # Se ejecuta desde el hilo de trabajo: se delega al hilo principal.
-        self.after(0, lambda: self._handle_result(result))
+        # Se ejecuta desde el hilo de trabajo: solo encola (sin tocar tkinter).
+        self._pending.put(("result", result))
 
     def _handle_result(self, result: Result[ProcessingResult]) -> None:
         self._drain_queue()
         self._set_running(False)
+        self._review.set_generating(False)
         if result.is_err():
-            self._console.append(EventLevel.ERROR, result.error or "Error desconocido")
+            self._phase = "review"
+            self._refresh()
             messagebox.showerror("Error", result.error or "Ocurrió un error.")
             return
+
         processing = result.unwrap()
-        self._progress.complete()
-        self._show_summary(processing)
+        self._result = processing
+        self._phase = "done"
+        self._new_report.progress.complete()
+        self._new_report.progress.set_status(
+            f"Completado: {processing.activities_with_content} actividad(es), "
+            f"{processing.items_written} viñeta(s)."
+        )
+        audit = processing.audit or self._audit or ProfessionalAudit()
+        self._review.show_result(processing, audit)
+        self._refresh()
+
+    # --- Acciones auxiliares ---
+
+    def _on_cancel(self) -> None:
+        self._vm.cancel()
+        self._new_report.console.append(EventLevel.WARNING, "Cancelación solicitada…")
+
+    def _open_output_folder(self) -> None:
+        if self._result and self._result.output_path:
+            open_path(Path(self._result.output_path).parent)
+
+    @staticmethod
+    def _on_change_theme(choice: str) -> None:
+        ctk.set_appearance_mode({"Claro": "light", "Oscuro": "dark"}.get(choice, "system"))
 
     # --- Sondeo de la cola (hilo principal) ---
 
     def _poll(self) -> None:
         self._drain_queue()
-        if self._vm.is_running:
+        self._dispatch_pending()
+        if self._vm.is_running or not self._pending.empty():
             self.after(_POLL_INTERVAL_MS, self._poll)
 
-    def _drain_queue(self) -> None:
-        queue = self._vm.progress.queue
-        while not queue.empty():
-            message = queue.get_nowait()
-            if isinstance(message, EventMessage):
-                self._console.append(message.level, message.text)
-            elif isinstance(message, ProgressMessage):
-                self._progress.set_progress(message.current, message.total)
+    def _dispatch_pending(self) -> None:
+        """Despacha en el hilo principal los resultados llegados del worker."""
+        while not self._pending.empty():
+            kind, payload = self._pending.get_nowait()
+            if kind == "plan":
+                self._handle_plan(payload)  # type: ignore[arg-type]
+            elif kind == "result":
+                self._handle_result(payload)  # type: ignore[arg-type]
 
-    # --- Estado / resumen ---
+    def _drain_queue(self) -> None:
+        events = self._vm.progress.queue
+        while not events.empty():
+            message = events.get_nowait()
+            if isinstance(message, EventMessage):
+                self._new_report.console.append(message.level, message.text)
+            elif isinstance(message, ProgressMessage):
+                self._new_report.progress.set_progress(message.current, message.total)
+
+    # --- Estado visual ---
 
     def _set_running(self, running: bool) -> None:
-        self._start_button.configure(state="disabled" if running else "normal")
-        self._cancel_button.configure(state="normal" if running else "disabled")
-        for selector in (self._word_selector, self._excel_selector, self._output_selector):
-            selector.set_enabled(not running)
-        self._month_menu.configure(state="disabled" if running else "normal")
+        self._new_report.set_running(running)
 
-    def _show_summary(self, processing: ProcessingResult) -> None:
-        if processing.cancelled:
-            self._progress.set_status("Proceso cancelado.")
+    def _refresh(self) -> None:
+        """Recalcula stepper, resumen del carril derecho y mensaje de estado."""
+        template_ok = bool(self._inputs.word_template)
+        excel_count = len(self._new_report.excel_selector.get_files())
+        month = self._new_report.month_var.get()
+        config_ok = bool(self._inputs.output_dir) and bool(month)
+
+        states: list[StepState] = [
+            "done" if template_ok else "pending",
+            "done" if excel_count else "pending",
+            "done" if config_ok else "pending",
+            "active" if self._phase == "planning" else (
+                "done" if self._plan is not None else "pending"
+            ),
+            "active" if self._phase == "applying" else (
+                "done" if self._result is not None else "pending"
+            ),
+        ]
+        self._stepper.set_states(states)
+
+        view = self._new_report
+        view.set_summary("template", "1 archivo" if template_ok else "—")
+        view.set_summary("excels", f"{excel_count} archivo(s)" if excel_count else "—")
+        view.set_summary("month", month.capitalize() if month else "—")
+        if self._plan is not None:
+            total_items = sum(p.items_count for p in self._plan.planned if p.matched)
+            view.set_summary("activities", str(len(self._plan.planned)))
+            view.set_summary("items", str(total_items))
         else:
-            self._progress.set_status(
-                f"Completado: {processing.activities_with_content} actividad(es), "
-                f"{processing.items_written} viñeta(s). Salida: {processing.output_path}"
+            view.set_summary("activities", "—")
+            view.set_summary("items", "—")
+
+        if self._phase == "planning":
+            view.set_state_message("Analizando archivos…", color=theme.PRIMARY)
+        elif self._phase == "applying":
+            view.set_state_message("Generando el informe…", color=theme.PRIMARY)
+        elif self._phase == "done":
+            view.set_state_message("✓ Informe generado. Revisa el resumen detallado.",
+                                   color=theme.PRIMARY)
+        elif self._phase == "review":
+            view.set_state_message(
+                "Análisis listo. Revisa y confirma en «Resumen detallado».",
+                color=theme.PRIMARY,
             )
-        SummaryDialog(self, processing.summary, processing.output_path)
+        elif template_ok and excel_count and config_ok:
+            view.set_state_message("✓ Listo para procesar.", color=theme.PRIMARY)
+        else:
+            missing = []
+            if not template_ok:
+                missing.append("plantilla Word")
+            if not excel_count:
+                missing.append("archivos Excel")
+            if not config_ok:
+                missing.append("carpeta de salida y mes")
+            view.set_state_message("Falta: " + ", ".join(missing) + ".")
 
     def _on_close(self) -> None:
         if self._vm.is_running:
@@ -298,55 +367,6 @@ class MainWindow(ctk.CTk):
         self.destroy()
 
 
-class SummaryDialog(ctk.CTkToplevel):
-    """Ventana modal con el resumen final del procesamiento."""
-
-    def __init__(self, master: ctk.CTk, summary: str, output_path: str = "") -> None:
-        super().__init__(master)
-        self._output_path = output_path
-        self.title("Resumen del procesamiento")
-        self.geometry("640x540")
-        self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(0, weight=1)
-        branding.apply_window_icon(self)
-
-        textbox = ctk.CTkTextbox(
-            self,
-            wrap="word",
-            font=("monospace", 12),
-            fg_color=theme.CONSOLE_BG,
-            text_color=theme.CONSOLE_TEXT,
-        )
-        textbox.grid(row=0, column=0, padx=16, pady=16, sticky="nsew")
-        textbox.insert("1.0", summary or "Sin resumen.")
-        textbox.configure(state="disabled")
-
-        buttons = ctk.CTkFrame(self, fg_color="transparent")
-        buttons.grid(row=1, column=0, pady=(0, 16))
-        if output_path:
-            ctk.CTkButton(
-                buttons,
-                text="Abrir carpeta de salida",
-                fg_color=theme.PRIMARY,
-                hover_color=theme.PRIMARY_HOVER,
-                command=self._open_output,
-            ).pack(side="left", padx=6)
-        ctk.CTkButton(
-            buttons,
-            text="Cerrar",
-            fg_color=theme.SECONDARY,
-            hover_color=theme.SECONDARY_HOVER,
-            text_color=theme.TEXT_ON_SECONDARY,
-            command=self.destroy,
-        ).pack(side="left", padx=6)
-        self.after(100, self.lift)
-
-    def _open_output(self) -> None:
-        folder = Path(self._output_path).parent if self._output_path else None
-        if folder:
-            open_path(folder)
-
-
-def _short(path: str, max_len: int = 60) -> str:
+def _short(path: str, max_len: int = 46) -> str:
     """Acorta una ruta larga para mostrarla."""
     return path if len(path) <= max_len else "…" + path[-(max_len - 1) :]

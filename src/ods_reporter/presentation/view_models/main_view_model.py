@@ -106,8 +106,10 @@ class MainViewModel:
         use_case, request = self._use_case, self._request
 
         def done(result: Result[ODSPlan]) -> None:
-            self.is_running = False
+            # El callback se invoca ANTES de bajar la bandera: quien sondea con
+            # ``is_running`` no deja de mirar antes de recibir el resultado.
             on_plan_ready(result)
+            self.is_running = False
 
         self._worker = ProcessingWorker(lambda: use_case.plan(request), done)
         self._worker.start()
@@ -128,8 +130,8 @@ class MainViewModel:
         use_case, request = self._use_case, self._request
 
         def done(result: Result[ProcessingResult]) -> None:
-            self.is_running = False
             on_done(result)
+            self.is_running = False
 
         self._worker = ProcessingWorker(
             lambda: use_case.apply(request, plan, overrides), done
