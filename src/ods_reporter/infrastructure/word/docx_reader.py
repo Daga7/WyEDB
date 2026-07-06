@@ -34,6 +34,11 @@ _MARKER_ACTIVITY = "actividad:"
 _MARKER_ENTREGABLE = "descripcion del entregable:"
 _MARKER_REALIZADAS = "descripcion de las actividades realizadas:"
 
+# Inicio (normalizado) de la fila de observaciones/actividades adicionales, que
+# aparece tras la última actividad ("Observaciones generales y/o actividades
+# adicionales encomendadas por...").
+_MARKER_OBSERVACIONES = "observaciones"
+
 
 @dataclass(slots=True)
 class WordEntregable:
@@ -68,11 +73,19 @@ class WordActivity:
     entregables: list[WordEntregable] = field(default_factory=list)
 
 
+@dataclass(slots=True)
+class WordStructure:
+    """Estructura completa del documento: actividades + sección de observaciones."""
+
+    activities: list[WordActivity] = field(default_factory=list)
+    observaciones: WordEntregable | None = None
+
+
 class DocxReader:
     """Extrae la estructura de actividades de un documento Word."""
 
-    def read_activities(self, document: Document) -> list[WordActivity]:
-        """Devuelve las actividades del documento con sus slots de inserción.
+    def read_structure(self, document: Document) -> WordStructure:
+        """Devuelve las actividades y la sección de observaciones (si existe).
 
         Raises
         ------
@@ -80,7 +93,7 @@ class DocxReader:
             Si no se encuentra la tabla de actividades.
         """
         table = self._find_activities_table(document)
-        activities: list[WordActivity] = []
+        structure = WordStructure()
         current: WordActivity | None = None
 
         # Se itera a nivel XML (cada <w:tr> tiene sus propias <w:tc>): con celdas
@@ -93,16 +106,43 @@ class DocxReader:
             col_activity = _Cell(tcs[1], table)
 
             ordinal = self._read_ordinal(col_no)
+
+            # Fila de observaciones/actividades adicionales: cierra la lista de
+            # actividades (su celda de texto es la PRIMERA de la fila).
+            if ordinal is None and self._is_observaciones_cell(col_no):
+                structure.observaciones = self._read_observaciones(col_no)
+                current = None
+                continue
+
             entregable = self._read_entregable(col_activity)
 
             if ordinal is not None and (current is None or ordinal != current.ordinal):
                 current = WordActivity(ordinal=ordinal, label=self._read_label(col_activity))
-                activities.append(current)
+                structure.activities.append(current)
 
             if current is not None and entregable is not None:
                 current.entregables.append(entregable)
 
-        return activities
+        return structure
+
+    def read_activities(self, document: Document) -> list[WordActivity]:
+        """Devuelve solo las actividades (compatibilidad con el uso existente)."""
+        return self.read_structure(document).activities
+
+    # --- Sección de observaciones ---
+
+    @staticmethod
+    def _is_observaciones_cell(cell: _Cell) -> bool:
+        return normalize_text(cell.text).startswith(_MARKER_OBSERVACIONES)
+
+    def _read_observaciones(self, cell: _Cell) -> WordEntregable | None:
+        """Extrae la sección de observaciones: título + viñeta de inserción."""
+        slot = self._find_slot(cell.paragraphs, None)
+        if slot is None:
+            return None
+        return WordEntregable(
+            entregable_text=_first_title_text(cell.paragraphs), cell=cell, slot_paragraph=slot
+        )
 
     # --- Localización de la tabla ---
 

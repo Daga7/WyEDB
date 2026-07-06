@@ -37,6 +37,7 @@ class ProcessingResult:
     activities_with_content: int = 0
     activities_not_found: int = 0
     items_written: int = 0
+    other_activities_written: int = 0
     default_slots_filled: int = 0
     entregables_unmatched: int = 0
     errors: list[str] = field(default_factory=list)

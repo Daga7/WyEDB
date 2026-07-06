@@ -303,6 +303,10 @@ def test_plan_reports_structure_without_writing(
     assert plan.unmatched == ()
     assert len(plan.word_activities) > 0
     assert plan.read_errors == ()
+    # La plantilla ODS11 tiene la sección de observaciones, pero mayo no trae
+    # actividades adicionales diligenciadas.
+    assert plan.word_has_other_section is True
+    assert plan.other_activities_count == 0
     # La fase de plan NO genera el documento.
     assert not (tmp_path / "plan.docx").exists()
 

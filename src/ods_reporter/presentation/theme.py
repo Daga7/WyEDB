@@ -30,5 +30,8 @@ SECONDARY_HOVER: Final[tuple[str, str]] = ("gray79", "gray32")
 TEXT_ON_SECONDARY: Final[tuple[str, str]] = ("gray12", "gray90")
 
 # Consola: fondo oscuro fijo (en ambos temas) para que los colores por severidad
-# se lean siempre igual, estilo terminal.
+# se lean siempre igual, estilo terminal. El texto por defecto DEBE fijarse claro
+# explícitamente: en tema claro el color de texto por defecto es casi negro y
+# resultaría invisible sobre este fondo.
 CONSOLE_BG: Final[str] = "#171C22"
+CONSOLE_TEXT: Final[str] = "#DCE3EA"

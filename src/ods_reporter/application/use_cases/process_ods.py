@@ -146,6 +146,20 @@ class ProcessODSUseCase:
         if cancelled:
             self._progress.event(EventLevel.WARNING, "Análisis cancelado por el usuario.")
 
+        other_count = sum(len(p.other_activities) for p in professionals)
+        has_other_section = self._deps.word_processor.has_other_activities_section()
+        general_warnings: list[str] = []
+        if other_count:
+            self._progress.event(
+                EventLevel.INFO,
+                f"{other_count} actividad(es) adicional(es) detectada(s) en los Excel.",
+            )
+            if not has_other_section:
+                general_warnings.append(
+                    "El Word no tiene la sección de observaciones/actividades "
+                    f"adicionales: se omitirán {other_count} ítem(s)."
+                )
+
         return Ok(
             ODSPlan(
                 month=request.month,
@@ -154,6 +168,9 @@ class ProcessODSUseCase:
                 professionals=tuple(professionals),
                 read_errors=tuple(read_errors),
                 cancelled=cancelled,
+                other_activities_count=other_count,
+                word_has_other_section=has_other_section,
+                general_warnings=tuple(general_warnings),
             )
         )
 
@@ -232,6 +249,7 @@ class ProcessODSUseCase:
             self._progress.event(EventLevel.WARNING, "Proceso cancelado por el usuario.")
             return Ok(result)
 
+        self._insert_other_activities(plan, result)
         self._finalize(request, result, list(plan.professionals), output_file)
         result.elapsed_seconds = time.monotonic() - start
         self._write_report(request, result, output_file)
@@ -357,6 +375,30 @@ class ProcessODSUseCase:
                 full_warning = f"{warning} [{origin}]"
                 result.add_warning(full_warning)
                 self._progress.event(EventLevel.WARNING, full_warning)
+
+    def _insert_other_activities(self, plan: ODSPlan, result: ProcessingResult) -> None:
+        """Inserta las actividades adicionales de todos los profesionales."""
+        items = tuple(
+            item
+            for professional in plan.professionals
+            for item in professional.other_activities
+        )
+        if not items:
+            return
+        if not self._deps.word_processor.has_other_activities_section():
+            message = (
+                "El Word no tiene la sección de observaciones/actividades "
+                f"adicionales: se omitieron {len(items)} ítem(s)."
+            )
+            result.add_warning(message)
+            self._progress.event(EventLevel.WARNING, message)
+            return
+        written = self._deps.word_processor.insert_other_activities(items)
+        result.other_activities_written = written
+        self._progress.event(
+            EventLevel.INFO,
+            f"Insertada(s) {written} actividad(es) adicional(es) en Observaciones.",
+        )
 
     @staticmethod
     def _origin_label(professional: Professional) -> str:

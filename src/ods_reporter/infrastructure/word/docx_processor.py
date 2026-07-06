@@ -45,6 +45,7 @@ class DocxProcessor:
         self._aligner = aligner or EntregableAligner()
         self._document: docx.Document | None = None
         self._activities: list[WordActivity] = []
+        self._observaciones: WordEntregable | None = None
         self._by_ordinal: dict[int, WordActivity] = {}
         # Entregables del Word que ya recibieron contenido (para no sobrescribir
         # ni rellenarlos luego con el texto por defecto).
@@ -55,10 +56,17 @@ class DocxProcessor:
             self._document = docx.Document(str(path))
         except Exception as exc:
             raise WordProcessError(f"No se pudo abrir el Word '{path.name}': {exc}") from exc
-        self._activities = self._reader.read_activities(self._document)
+        structure = self._reader.read_structure(self._document)
+        self._activities = structure.activities
+        self._observaciones = structure.observaciones
         self._by_ordinal = {a.ordinal: a for a in self._activities}
         self._filled = set()
-        logger.info("Word '%s' abierto: %d actividades.", path.name, len(self._activities))
+        logger.info(
+            "Word '%s' abierto: %d actividades (observaciones: %s).",
+            path.name,
+            len(self._activities),
+            "sí" if self._observaciones else "no",
+        )
 
     def get_activity_ordinals(self) -> list[int]:
         return [a.ordinal for a in self._activities]
@@ -192,6 +200,19 @@ class DocxProcessor:
             entregables_unmatched=0,
             warnings=warnings,
         )
+
+    # --- Sección de observaciones / actividades adicionales ---
+
+    def has_other_activities_section(self) -> bool:
+        return self._observaciones is not None
+
+    def insert_other_activities(self, items: tuple[ContentItem, ...]) -> int:
+        """Inserta las actividades adicionales en la sección de observaciones."""
+        if self._observaciones is None or not items:
+            return 0
+        written = self._writer.fill_entregable(self._observaciones, items)
+        self._filled.add(id(self._observaciones))
+        return written
 
     def fill_empty_with_default(self, default_text: str) -> int:
         count = 0

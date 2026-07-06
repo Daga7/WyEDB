@@ -29,6 +29,7 @@ class ReportFormatter:
         add(f"Profesionales procesados : {result.professionals_processed}")
         add(f"Actividades con contenido: {result.activities_with_content}")
         add(f"Viñetas insertadas       : {result.items_written}")
+        add(f"Actividades adicionales  : {result.other_activities_written}")
         add(f"Slots con texto estándar : {result.default_slots_filled}")
         add(f"Actividades no encontradas: {result.activities_not_found}")
         add(f"Entregables sin alinear  : {result.entregables_unmatched}")

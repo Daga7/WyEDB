@@ -23,10 +23,11 @@ _ACTIVITIES = (
 )
 
 
-def _build_word(path: Path) -> None:
+def _build_word(path: Path, *, with_observaciones: bool = False) -> None:
     """Construye una plantilla mínima con la estructura que espera el lector."""
     document = docx.Document()
-    table = document.add_table(rows=1 + len(_ACTIVITIES), cols=2)
+    extra_rows = 1 if with_observaciones else 0
+    table = document.add_table(rows=1 + len(_ACTIVITIES) + extra_rows, cols=2)
     table.rows[0].cells[0].text = "No"
     table.rows[0].cells[1].text = "Actividades"
 
@@ -38,6 +39,15 @@ def _build_word(path: Path) -> None:
         cell.add_paragraph(f"Descripción del entregable: Informe de {title.lower()}")
         cell.add_paragraph("Descripción de las actividades realizadas:")
         cell.add_paragraph("", style="List Bullet")  # slot de inserción
+
+    if with_observaciones:
+        # Fila final: la celda de texto es la PRIMERA de la fila (como en la
+        # plantilla real, donde va combinada) con título + viñeta de inserción.
+        cell = table.rows[-1].cells[0]
+        cell.paragraphs[0].text = (
+            "Observaciones generales y/o actividades adicionales encomendadas."
+        )
+        cell.add_paragraph("", style="List Bullet")
 
     document.save(str(path))
 
@@ -101,6 +111,33 @@ def test_plan_reports_unmatched_activity(word_path: Path) -> None:
 
     assert outcome.matched is False
     assert any("no existe en el Word" in w for w in outcome.warnings)
+
+
+def test_observaciones_section_detected_and_filled(tmp_path: Path) -> None:
+    path = tmp_path / "con_observaciones.docx"
+    _build_word(path, with_observaciones=True)
+
+    processor = DocxProcessor()
+    processor.open(path)
+
+    # La fila de observaciones no cuenta como actividad.
+    assert len(processor.get_activities_overview()) == len(_ACTIVITIES)
+    assert processor.has_other_activities_section() is True
+
+    items = (ContentItem("Capacitación extra (16/03/2026)"), ContentItem("Apoyo en comité"))
+    assert processor.insert_other_activities(items) == 2
+
+    saved = tmp_path / "con_observaciones_lleno.docx"
+    processor.save(saved)
+    assert "Capacitación extra (16/03/2026)" in _full_text(saved)
+    assert "Apoyo en comité" in _full_text(saved)
+
+
+def test_word_without_observaciones_reports_no_section(word_path: Path) -> None:
+    processor = DocxProcessor()
+    processor.open(word_path)
+    assert processor.has_other_activities_section() is False
+    assert processor.insert_other_activities((ContentItem("Algo"),)) == 0
 
 
 def test_manual_reassignment_inserts_in_chosen_activity(

@@ -47,6 +47,11 @@ class ODSPlan:
     professionals: tuple[Professional, ...]
     read_errors: tuple[str, ...] = field(default_factory=tuple)
     cancelled: bool = False
+    # Actividades adicionales ("otras actividades solicitadas") detectadas en
+    # los Excel, y si el Word tiene la sección de observaciones donde insertarlas.
+    other_activities_count: int = 0
+    word_has_other_section: bool = False
+    general_warnings: tuple[str, ...] = field(default_factory=tuple)
 
     @property
     def unmatched(self) -> tuple[PlannedActivity, ...]:
@@ -55,7 +60,8 @@ class ODSPlan:
 
     @property
     def warnings(self) -> tuple[str, ...]:
-        return tuple(w for p in self.planned for w in p.warnings)
+        planned_warnings = tuple(w for p in self.planned for w in p.warnings)
+        return planned_warnings + self.general_warnings
 
     def items_for_word_ordinal(self, ordinal: int) -> int:
         """Viñetas que se insertarán en la actividad ``ordinal`` del Word."""

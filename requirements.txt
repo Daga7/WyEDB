@@ -12,3 +12,6 @@ rapidfuzz>=3.10,<4
 
 # Interfaz gráfica moderna (requiere el paquete del sistema 'tk')
 customtkinter>=5.2.2
+
+# Carga del logo en la interfaz (CTkImage) y generación de iconos
+pillow>=10

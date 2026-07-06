@@ -18,7 +18,7 @@ import customtkinter as ctk
 from ods_reporter.application.ports.progress_port import EventLevel
 from ods_reporter.application.use_cases.ods_plan import ODSPlan, PlanOverrides
 from ods_reporter.domain.entities.processing_result import ProcessingResult
-from ods_reporter.presentation import theme
+from ods_reporter.presentation import branding, theme
 from ods_reporter.presentation.system_open import open_path
 from ods_reporter.presentation.view_models.main_view_model import FormInputs, MainViewModel
 from ods_reporter.presentation.views.components.console_panel import ConsolePanel
@@ -46,6 +46,7 @@ class MainWindow(ctk.CTk):
         self.minsize(820, 660)
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(2, weight=1)
+        branding.apply_window_icon(self)
 
         self._build_header()
         self._build_form()
@@ -59,10 +60,17 @@ class MainWindow(ctk.CTk):
     def _build_header(self) -> None:
         header = ctk.CTkFrame(self, fg_color="transparent")
         header.grid(row=0, column=0, padx=24, pady=(18, 10), sticky="ew")
-        header.grid_columnconfigure(0, weight=1)
+        header.grid_columnconfigure(1, weight=1)
+
+        # Logo S.G.I. a la izquierda (si el recurso está disponible).
+        self._logo_image = branding.load_logo(height=44)
+        if self._logo_image is not None:
+            ctk.CTkLabel(header, image=self._logo_image, text="").grid(
+                row=0, column=0, sticky="w", padx=(0, 14)
+            )
 
         titles = ctk.CTkFrame(header, fg_color="transparent")
-        titles.grid(row=0, column=0, sticky="w")
+        titles.grid(row=0, column=1, sticky="w")
         ctk.CTkLabel(
             titles, text=APP_NAME, font=ctk.CTkFont(size=21, weight="bold")
         ).pack(anchor="w")
@@ -84,7 +92,7 @@ class MainWindow(ctk.CTk):
             text_color=theme.TEXT_ON_SECONDARY,
             command=self._on_change_theme,
         )
-        self._theme_menu.grid(row=0, column=1, sticky="ne")
+        self._theme_menu.grid(row=0, column=2, sticky="ne")
 
     @staticmethod
     def _on_change_theme(choice: str) -> None:
@@ -300,9 +308,14 @@ class SummaryDialog(ctk.CTkToplevel):
         self.geometry("640x540")
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(0, weight=1)
+        branding.apply_window_icon(self)
 
         textbox = ctk.CTkTextbox(
-            self, wrap="word", font=("monospace", 12), fg_color=theme.CONSOLE_BG
+            self,
+            wrap="word",
+            font=("monospace", 12),
+            fg_color=theme.CONSOLE_BG,
+            text_color=theme.CONSOLE_TEXT,
         )
         textbox.grid(row=0, column=0, padx=16, pady=16, sticky="nsew")
         textbox.insert("1.0", summary or "Sin resumen.")

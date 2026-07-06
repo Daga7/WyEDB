@@ -12,12 +12,13 @@ import unicodedata
 _WHITESPACE_RE = re.compile(r"\s+")
 
 # Numeración inicial a eliminar: arábiga (1, 10), romana (i, ii, iv) o una sola
-# letra (a, b), seguida de un separador (. ) - :).
+# letra (a, b), seguida de un separador (. ) - : _).
 #   "i. Identificar..."   -> "Identificar..."
 #   "1) Cargar..."        -> "Cargar..."
 #   "vii. Elaborar..."    -> "Elaborar..."
+#   "7_Instalación..."    -> "Instalación..." (numeración con guion bajo)
 _LEADING_NUMERAL_RE = re.compile(
-    r"^\s*(?:\d+|[ivxlcdm]+|[a-z])\s*[.)\-:]\s*",
+    r"^\s*(?:\d+|[ivxlcdm]+|[a-z])\s*[.)\-:_]\s*",
     re.IGNORECASE,
 )
 

@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Protocol
 
 from ods_reporter.domain.entities.activity import Activity
+from ods_reporter.domain.value_objects.content_item import ContentItem
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,6 +60,17 @@ class WordProcessorPort(Protocol):
         """Inserta el contenido de ``activity`` (emparejando por numeral y
         alineando entregables por texto). Con ``target_ordinal`` se fuerza el
         destino (reasignación manual). Devuelve el detalle de lo ocurrido.
+        """
+        ...
+
+    def has_other_activities_section(self) -> bool:
+        """``True`` si el documento tiene la sección de observaciones/adicionales."""
+        ...
+
+    def insert_other_activities(self, items: tuple[ContentItem, ...]) -> int:
+        """Inserta ``items`` como viñetas en la sección de observaciones.
+
+        Devuelve la cantidad insertada (0 si el documento no tiene la sección).
         """
         ...
 

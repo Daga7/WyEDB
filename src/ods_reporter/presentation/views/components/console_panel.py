@@ -46,6 +46,7 @@ class ConsolePanel(ctk.CTkFrame):
             wrap="word",
             font=("monospace", 12),
             fg_color=theme.CONSOLE_BG,
+            text_color=theme.CONSOLE_TEXT,
             corner_radius=8,
         )
         self._textbox.grid(row=1, column=0, pady=(0, 4), sticky="nsew")

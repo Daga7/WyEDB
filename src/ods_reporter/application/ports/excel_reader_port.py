@@ -56,11 +56,29 @@ class RawActivity:
 
 
 @dataclass(frozen=True, slots=True)
+class RawOtherActivity:
+    """Una fila de la sección "OTRAS ACTIVIDADES SOLICITADAS POR...", sin interpretar.
+
+    Attributes
+    ----------
+    text:
+        Descripción cruda de la actividad adicional.
+    date:
+        Fecha de ejecución ya formateada como texto (``dd/mm/aaaa`` o el texto
+        original si no era una fecha), o cadena vacía si no se diligenció.
+    """
+
+    text: str
+    date: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class RawReport:
     """Reporte crudo de un Excel para un mes: metadatos + actividades."""
 
     metadata: ODSMetadata
     activities: tuple[RawActivity, ...] = field(default_factory=tuple)
+    other_activities: tuple[RawOtherActivity, ...] = field(default_factory=tuple)
 
     @property
     def professional_name(self) -> str:

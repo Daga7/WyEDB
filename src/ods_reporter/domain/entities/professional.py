@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from ods_reporter.domain.entities.activity import Activity
+from ods_reporter.domain.value_objects.content_item import ContentItem
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,11 +25,16 @@ class Professional:
         Nombre del archivo Excel de origen (para el reporte y el log).
     activities:
         Todas las actividades leídas para el periodo (con o sin contenido).
+    other_activities:
+        Actividades adicionales ("otras actividades solicitadas"), ya
+        normalizadas y con su fecha incorporada al texto. Se insertan en la
+        sección de observaciones del Word.
     """
 
     name: str
     source_file: str
     activities: tuple[Activity, ...] = field(default_factory=tuple)
+    other_activities: tuple[ContentItem, ...] = field(default_factory=tuple)
 
     @property
     def activities_with_content(self) -> tuple[Activity, ...]:

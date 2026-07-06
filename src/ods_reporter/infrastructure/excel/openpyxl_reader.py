@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+from datetime import date, datetime
 from pathlib import Path
 
 import openpyxl
@@ -16,6 +17,7 @@ import openpyxl
 from ods_reporter.application.ports.excel_reader_port import (
     RawActivity,
     RawEntregable,
+    RawOtherActivity,
     RawReport,
 )
 from ods_reporter.domain.exceptions import ExcelReadError, InvalidInputError
@@ -27,6 +29,15 @@ from ods_reporter.infrastructure.excel.excel_schema import (
     read_metadata,
 )
 from ods_reporter.shared.constants import EXCEL_EXTENSIONS, MONTHS
+from ods_reporter.shared.text_utils import normalize_text
+
+# Marcador de la sección de actividades adicionales ("OTRAS ACTIVIDADES
+# SOLICITADAS POR ECOPETROL/HOCOL/..."): su fila es también el encabezado.
+_OTHER_ACTIVITIES_MARKER = "otras actividades solicitadas"
+# Encabezado (normalizado) de la columna de fecha dentro de esa sección.
+_OTHER_DATE_HEADER = "fecha de ejecucion"
+# Marcadores que terminan la sección de actividades adicionales.
+_OTHER_END_MARKERS = ("fin del reporte", "relacion de comisiones")
 
 logger = logging.getLogger(__name__)
 
@@ -56,18 +67,22 @@ class OpenpyxlExcelReader:
                     metadata = dataclasses.replace(
                         metadata, responsible_professional=fallback
                     )
-            activities = self._read_activities(sheet, layout)
+            activities, stop_row = self._read_activities(sheet, layout)
+            other_activities = self._read_other_activities(sheet, layout, stop_row)
         finally:
             workbook.close()
 
         logger.info(
-            "Excel '%s' [%s]: %d actividades leídas (profesional: %s)",
+            "Excel '%s' [%s]: %d actividades y %d adicionales (profesional: %s)",
             file_path.name,
             month,
             len(activities),
+            len(other_activities),
             metadata.responsible_professional or "desconocido",
         )
-        return RawReport(metadata=metadata, activities=activities)
+        return RawReport(
+            metadata=metadata, activities=activities, other_activities=other_activities
+        )
 
     # --- Validación ---
 
@@ -121,8 +136,10 @@ class OpenpyxlExcelReader:
         self,
         sheet: "openpyxl.worksheet.worksheet.Worksheet",
         layout: TableLayout,
-    ) -> tuple[RawActivity, ...]:
+    ) -> tuple[tuple[RawActivity, ...], int | None]:
+        """Lee la tabla principal; devuelve las actividades y la fila donde paró."""
         activities: list[RawActivity] = []
+        stop_row: int | None = None
         current_ordinal: int | None = None
         current_label: str = ""
         current_entregables: list[RawEntregable] = []
@@ -144,6 +161,7 @@ class OpenpyxlExcelReader:
 
             # Fin de la tabla de actividades.
             if is_stop_marker(str(id_value or "")) or is_stop_marker(str(label_value or "")):
+                stop_row = row
                 break
 
             ordinal = self._parse_ordinal(id_value)
@@ -168,7 +186,69 @@ class OpenpyxlExcelReader:
                     )
 
         flush()
-        return tuple(activities)
+        return tuple(activities), stop_row
+
+    # --- Sección "Otras actividades solicitadas" ---
+
+    def _read_other_activities(
+        self,
+        sheet: "openpyxl.worksheet.worksheet.Worksheet",
+        layout: TableLayout,
+        stop_row: int | None,
+    ) -> tuple[RawOtherActivity, ...]:
+        """Lee las actividades adicionales que siguen a la tabla principal.
+
+        La fila del marcador "OTRAS ACTIVIDADES SOLICITADAS POR..." es a la vez
+        el encabezado de la sección: la descripción va en la misma columna del
+        marcador y la fecha en la columna "FECHA DE EJECUCIÓN". Si la parada de
+        la tabla principal no fue por ese marcador, no hay sección.
+        """
+        if stop_row is None or not self._is_other_activities_row(sheet, stop_row):
+            return ()
+
+        date_col = self._find_other_date_col(sheet, stop_row)
+        others: list[RawOtherActivity] = []
+
+        for row in range(stop_row + 1, sheet.max_row + 1):
+            id_text = normalize_text(str(sheet.cell(row=row, column=layout.id_col).value or ""))
+            text_value = sheet.cell(row=row, column=layout.activities_col).value
+            text = str(text_value).strip() if text_value is not None else ""
+            if any(marker in id_text or marker in normalize_text(text) for marker in _OTHER_END_MARKERS):
+                break
+            if not text:
+                continue  # filas con ID pero sin descripción: no diligenciadas
+            date_value = (
+                sheet.cell(row=row, column=date_col).value if date_col is not None else None
+            )
+            others.append(RawOtherActivity(text=text, date=self._format_date(date_value)))
+
+        return tuple(others)
+
+    @staticmethod
+    def _is_other_activities_row(
+        sheet: "openpyxl.worksheet.worksheet.Worksheet", row: int
+    ) -> bool:
+        for col in range(1, sheet.max_column + 1):
+            value = normalize_text(str(sheet.cell(row=row, column=col).value or ""))
+            if _OTHER_ACTIVITIES_MARKER in value:
+                return True
+        return False
+
+    @staticmethod
+    def _find_other_date_col(
+        sheet: "openpyxl.worksheet.worksheet.Worksheet", header_row: int
+    ) -> int | None:
+        for col in range(1, sheet.max_column + 1):
+            value = normalize_text(str(sheet.cell(row=header_row, column=col).value or ""))
+            if value.startswith(_OTHER_DATE_HEADER):
+                return col
+        return None
+
+    @staticmethod
+    def _format_date(value: object) -> str:
+        if isinstance(value, datetime | date):
+            return value.strftime("%d/%m/%Y")
+        return str(value).strip() if value is not None else ""
 
     @staticmethod
     def _entregable_text(

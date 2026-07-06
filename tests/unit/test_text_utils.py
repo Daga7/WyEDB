@@ -36,6 +36,8 @@ def test_normalize_text_canonical_form() -> None:
         ("1) Cargar soporte", "Cargar soporte"),
         ("10. Décima actividad", "Décima actividad"),
         ("a) Primera", "Primera"),
+        ("7_Instalación de piezómetros", "Instalación de piezómetros"),
+        ("12_Seguimiento y revegetalización", "Seguimiento y revegetalización"),
         ("Sin numeral inicial", "Sin numeral inicial"),
         ("media. esto no es numeral", "media. esto no es numeral"),
     ],

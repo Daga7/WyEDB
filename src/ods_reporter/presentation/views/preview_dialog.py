@@ -14,7 +14,7 @@ import customtkinter as ctk
 
 from ods_reporter.application.use_cases.ods_plan import ODSPlan, PlanOverrides
 from ods_reporter.infrastructure.matching.roman_numerals import int_to_roman
-from ods_reporter.presentation import theme
+from ods_reporter.presentation import branding, theme
 
 ConfirmCallback = Callable[[ODSPlan, PlanOverrides], None]
 
@@ -39,6 +39,7 @@ class PreviewDialog(ctk.CTkToplevel):
         self.minsize(680, 560)
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
+        branding.apply_window_icon(self)
 
         self._build_header()
         self._build_body()
@@ -71,6 +72,8 @@ class PreviewDialog(ctk.CTkToplevel):
             f"{len(plan.professionals)} profesional(es)",
             f"{total_items} viñeta(s) para {len(plan.word_activities)} actividad(es) del Word",
         ]
+        if plan.other_activities_count:
+            parts.append(f"{plan.other_activities_count} adicional(es)")
         if plan.unmatched:
             parts.append(f"{len(plan.unmatched)} sin ubicación")
         if plan.read_errors:
@@ -107,7 +110,27 @@ class PreviewDialog(ctk.CTkToplevel):
                 row=0, column=1, padx=(8, 0)
             )
             row += 1
+
+        if self._plan.word_has_other_section:
+            row = self._build_other_activities_row(parent, row)
         return row
+
+    def _build_other_activities_row(self, parent: ctk.CTkFrame, row: int) -> int:
+        line = ctk.CTkFrame(parent, fg_color="transparent")
+        line.grid(row=row, column=0, padx=14, pady=(6, 1), sticky="ew")
+        line.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(
+            line, text="Observaciones y actividades adicionales", anchor="w"
+        ).grid(row=0, column=0, sticky="ew")
+        count = self._plan.other_activities_count
+        if count:
+            status, color = f"{count} viñeta(s)", theme.GREEN
+        else:
+            status, color = "sin adicionales", theme.MUTED
+        ctk.CTkLabel(line, text=status, text_color=color, anchor="e").grid(
+            row=0, column=1, padx=(8, 0)
+        )
+        return row + 1
 
     def _build_unmatched_section(self, parent: ctk.CTkFrame, row: int) -> int:
         row = self._section_label(parent, "Contenido sin ubicación", row)
@@ -172,6 +195,7 @@ class PreviewDialog(ctk.CTkToplevel):
             wrap="word",
             font=("monospace", 11),
             fg_color=theme.CONSOLE_BG,
+            text_color=theme.CONSOLE_TEXT,
         )
         textbox.grid(row=row, column=0, padx=14, pady=(0, 10), sticky="ew")
         for error in plan.read_errors:
