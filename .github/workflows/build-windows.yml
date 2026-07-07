@@ -38,10 +38,17 @@ jobs:
       - name: Construir el ejecutable
         run: pyinstaller ods_reporter.spec --noconfirm
 
+      # El instalador deja el programa INSTALADO (menú Inicio, acceso directo
+      # en el escritorio y desinstalador), en lugar de un .exe suelto.
+      # Inno Setup viene preinstalado en los runners de Windows.
+      - name: Construir el instalador (Inno Setup)
+        run: '& "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" packaging\installer.iss'
+
       # El .zip es el formato de distribución: Gmail/Drive y los navegadores
       # tratan mejor un .zip que un .exe suelto (menos falsos positivos).
+      # Contiene el instalador y un LEEME con los pasos.
       - name: Empaquetar en .zip para distribución
-        run: Compress-Archive -Path "dist/ODS Reporter.exe" -DestinationPath "dist/ODS-Reporter-Windows.zip"
+        run: Compress-Archive -Path "dist/ODS-Reporter-Setup.exe", "packaging/LEEME.txt" -DestinationPath "dist/ODS-Reporter-Windows.zip"
 
       - name: Publicar el .exe como artefacto (uso interno)
         uses: actions/upload-artifact@v4
@@ -50,9 +57,12 @@ jobs:
           path: "dist/ODS Reporter.exe"
           if-no-files-found: error
 
-      # Si el disparador fue un tag de versión, adjunta el .zip a la Release.
+      # Si el disparador fue un tag de versión, adjunta el .zip (instalador +
+      # LEEME) y el instalador suelto a la Release.
       - name: Adjuntar a la Release (solo en tags v*)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: "dist/ODS-Reporter-Windows.zip"
+          files: |
+            dist/ODS-Reporter-Windows.zip
+            dist/ODS-Reporter-Setup.exe

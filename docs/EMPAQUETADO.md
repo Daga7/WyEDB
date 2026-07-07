@@ -75,18 +75,23 @@ aplicadas y pendientes:
   disparador más común de falsos positivos.
 - ✅ **Metadatos de versión** (`packaging/version_info.txt`): empresa
   (S.G.I. S.A.S.), producto y versión visibles en Propiedades → Detalles.
-- ⬜ **Icono** (`assets/icon.ico`): el spec lo toma automáticamente si existe.
-  Generarlo desde el logo oficial (PNG → ICO multi-resolución 16/32/48/256).
-- ⬜ **Distribuir en `.zip`** (Gmail/Drive bloquean `.exe` directos) y publicar
+- ✅ **Icono** (`assets/icon.ico`): el spec lo toma automáticamente si existe.
+- ✅ **Distribuir en `.zip`** (Gmail/Drive bloquean `.exe` directos) y publicar
   por **GitHub Releases** para acumular reputación de descarga.
+- ✅ **Instalador de Windows** (`packaging/installer.iss`, Inno Setup): el
+  programa queda instalado por usuario (sin pedir administrador) con entrada en
+  el menú Inicio, acceso directo en el escritorio y desinstalador en
+  "Aplicaciones". El CI lo compila (`ODS-Reporter-Setup.exe`) y el `.zip` de
+  distribución contiene el instalador + `LEEME.txt`.
 - ⬜ **Firma de código** (solución definitiva): certificado a nombre de
   S.G.I. S.A.S. — Azure Trusted Signing (mensual, reputación inmediata) o
   certificado OV/EV clásico. Reportar además el falso positivo a Microsoft:
   https://www.microsoft.com/en-us/wdsi/filesubmission
 
 ## Notas
-- El ejecutable incluye Python, las dependencias y los temas de CustomTkinter; el
-  usuario final **no instala nada**.
+- El ejecutable incluye Python, las dependencias y los temas de CustomTkinter;
+  no requiere instalar Python ni programas adicionales. Desde la 3.2.0 se
+  distribuye con instalador propio (accesos directos + desinstalador).
 - El primer arranque del onefile puede tardar unos segundos (se descomprime en una
   carpeta temporal).
 - El archivo de log se escribe en la carpeta de datos del usuario

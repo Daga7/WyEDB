@@ -1,11 +1,12 @@
 """Ventana principal de la aplicación (shell con navegación lateral).
 
 Estructura: barra lateral (logo + módulos) y un área principal con cabecera,
-indicador de pasos y dos vistas intercambiables:
+indicador de pasos y tres vistas intercambiables:
 
 - **Nuevo informe**: carga de archivos, configuración y procesamiento.
 - **Resumen detallado**: revisión del análisis (con reasignación del contenido
   sin ubicación), panel de resumen/auditoría y generación del informe.
+- **Cómo usar**: el manual de usuario dentro de la aplicación.
 
 La ventana orquesta el ViewModel y consume los mensajes del hilo de trabajo
 desde el hilo principal mediante un sondeo periódico de la cola (``after``).
@@ -29,8 +30,14 @@ from ods_reporter.domain.entities.processing_result import (
 from ods_reporter.presentation import branding, theme
 from ods_reporter.presentation.system_open import open_path
 from ods_reporter.presentation.view_models.main_view_model import FormInputs, MainViewModel
-from ods_reporter.presentation.views.components.sidebar import NEW_REPORT, REVIEW, Sidebar
+from ods_reporter.presentation.views.components.sidebar import (
+    HELP,
+    NEW_REPORT,
+    REVIEW,
+    Sidebar,
+)
 from ods_reporter.presentation.views.components.stepper import Stepper, StepState
+from ods_reporter.presentation.views.help_view import HelpView
 from ods_reporter.presentation.views.new_report_view import NewReportView
 from ods_reporter.presentation.views.review_view import ReviewView
 from ods_reporter.presentation.workers.gui_progress import EventMessage, ProgressMessage
@@ -141,15 +148,19 @@ class MainWindow(ctk.CTk):
         self._review.grid(row=0, column=0, sticky="nsew")
         self._review.grid_remove()
 
+        self._help = HelpView(container)
+        self._help.grid(row=0, column=0, sticky="nsew")
+        self._help.grid_remove()
+
     # --- Navegación ---
 
     def _on_select_module(self, key: str) -> None:
-        if key == NEW_REPORT:
-            self._review.grid_remove()
-            self._new_report.grid()
-        else:
-            self._new_report.grid_remove()
-            self._review.grid()
+        views = {NEW_REPORT: self._new_report, REVIEW: self._review, HELP: self._help}
+        for name, view in views.items():
+            if name == key:
+                view.grid()
+            else:
+                view.grid_remove()
 
     # --- Diálogos de selección ---
 

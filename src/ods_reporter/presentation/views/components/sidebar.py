@@ -1,7 +1,8 @@
 """Barra lateral de navegación con el logo de la empresa y los módulos.
 
-Dos módulos: "Nuevo informe" y "Resumen detallado". El seleccionado se resalta
-con el verde corporativo; la vista principal decide qué hacer al cambiar.
+Tres módulos: "Nuevo informe", "Resumen detallado" y "Cómo usar" (el manual).
+El seleccionado se resalta con el verde corporativo; la vista principal decide
+qué hacer al cambiar.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ SelectCallback = Callable[[str], None]
 
 NEW_REPORT = "nuevo"
 REVIEW = "resumen"
+HELP = "uso"
 
 
 class Sidebar(ctk.CTkFrame):
@@ -63,6 +65,7 @@ class Sidebar(ctk.CTkFrame):
 
         self._buttons[NEW_REPORT] = self._nav_button(nav, "📝  Nuevo informe", NEW_REPORT, 0)
         self._buttons[REVIEW] = self._nav_button(nav, "📊  Resumen detallado", REVIEW, 1)
+        self._buttons[HELP] = self._nav_button(nav, "📖  Cómo usar", HELP, 2)
 
     def _nav_button(
         self, parent: ctk.CTkFrame, text: str, key: str, row: int

@@ -1,0 +1,27 @@
+ODS Reporter — S.G.I. S.A.S. Consultoría e Ingeniería
+======================================================
+
+CÓMO INSTALAR
+-------------
+1. Haz doble clic en "ODS-Reporter-Setup.exe".
+2. Si Windows muestra el aviso "Windows protegió tu PC", haz clic en
+   "Más información" y luego en "Ejecutar de todas formas".
+   (Ocurre porque el programa aún no está firmado digitalmente;
+   es un falso positivo habitual en programas nuevos.)
+3. Sigue el asistente de instalación.
+
+Al terminar, "ODS Reporter" queda en el menú Inicio y con un acceso
+directo en el escritorio. Para abrirlo, solo haz doble clic.
+
+CÓMO ACTUALIZAR
+---------------
+Instala la versión nueva: reemplaza a la anterior automáticamente.
+
+CÓMO DESINSTALAR
+----------------
+Configuración de Windows > Aplicaciones > ODS Reporter > Desinstalar.
+
+AYUDA
+-----
+Dentro de la aplicación, el módulo "Cómo usar" contiene el manual
+de usuario completo.
