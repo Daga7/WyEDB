@@ -95,6 +95,20 @@ def strip_leading_bare_number(text: str) -> str:
     return _LEADING_BARE_NUMBER_RE.sub("", text, count=1).strip()
 
 
+# Número de ODS dentro de un texto: "3040727 ECP ODS No. 11" -> "11".
+# Tolera variantes: "ODS 11", "ODS N° 11", "ODS Nro. 11", "ODS No: 11".
+_ODS_NUMBER_RE = re.compile(
+    r"\bODS\s*(?:N(?:ro|o)?\s*[°ºª]?\s*[.:]?\s*)?(\d+)",
+    re.IGNORECASE,
+)
+
+
+def extract_ods_number(text: str) -> str:
+    """Extrae el número de ODS de un texto, o ``''`` si no hay uno reconocible."""
+    match = _ODS_NUMBER_RE.search(text or "")
+    return match.group(1) if match else ""
+
+
 def clean_content_line(text: str) -> str:
     """Limpia una línea de contenido: quita numeración/viñeta inicial y colapsa espacios.
 

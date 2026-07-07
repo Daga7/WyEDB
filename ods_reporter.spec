@@ -22,6 +22,10 @@ datas += [
     ("assets/icon.png", "assets"),
     ("assets/icon.ico", "assets"),
 ]
+# Ilustraciones decorativas opcionales (barra lateral y carril derecho).
+for _decoration in ("assets/side_left.png", "assets/side_right.png"):
+    if os.path.exists(_decoration):
+        datas.append((_decoration, "assets"))
 
 # Icono y metadatos de versión (Windows). Opcionales: si el archivo no existe,
 # se omiten sin romper la compilación en otros sistemas.

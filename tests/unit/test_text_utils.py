@@ -6,6 +6,7 @@ import pytest
 
 from ods_reporter.shared.text_utils import (
     collapse_whitespace,
+    extract_ods_number,
     normalize_text,
     strip_accents,
     strip_leading_numeral,
@@ -49,3 +50,20 @@ def test_strip_leading_numeral(entrada: str, esperado: str) -> None:
 def test_strip_leading_numeral_only_strips_once() -> None:
     # Solo se elimina la primera numeración, no las internas.
     assert strip_leading_numeral("1. 2. doble") == "2. doble"
+
+
+@pytest.mark.parametrize(
+    ("texto", "esperado"),
+    [
+        ("3040727 ECP ODS No. 11", "11"),
+        ("ODS 12", "12"),
+        ("ODS N° 5", "5"),
+        ("ods nro. 266", "266"),
+        ("ODS No: 7", "7"),
+        ("DURACIÓN DE LA ODS", ""),
+        ("Orden de Trabajo OT 279", ""),
+        ("", ""),
+    ],
+)
+def test_extract_ods_number(texto: str, esperado: str) -> None:
+    assert extract_ods_number(texto) == esperado

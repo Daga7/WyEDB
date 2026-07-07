@@ -32,6 +32,7 @@ class ReportBuilder:
             source_file=raw_report.source_file,
             activities=activities,
             other_activities=self._build_other_activities(raw_report.other_activities),
+            ods_number=raw_report.metadata.ods_number,
         )
 
     def _build_other_activities(

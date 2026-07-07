@@ -96,10 +96,24 @@ def test_plan_matches_without_writing(word_path: Path, tmp_path: Path) -> None:
 
     assert outcome.matched is True
     assert outcome.items_written == 1
+    assert outcome.warnings == ()  # el enunciado coincide: sin advertencias
     # El plan NO escribe: al guardar, el contenido no está en el documento.
     saved = tmp_path / "tras_plan.docx"
     processor.save(saved)
     assert "Se asesoró la obra A" not in _full_text(saved)
+
+
+def test_same_ordinal_but_different_label_warns(word_path: Path) -> None:
+    processor = DocxProcessor()
+    processor.open(word_path)
+    activity = _activity(
+        1, "Totalmente otra actividad de otro proyecto", "Informe", ("Algo",)
+    )
+
+    outcome = processor.plan_activity_content(activity)
+
+    assert outcome.matched is True  # el numeral existe...
+    assert any("no coincide" in w for w in outcome.warnings)  # ...pero se advierte
 
 
 def test_plan_reports_unmatched_activity(word_path: Path) -> None:

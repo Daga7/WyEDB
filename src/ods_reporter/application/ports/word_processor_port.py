@@ -46,6 +46,10 @@ class WordProcessorPort(Protocol):
         """Devuelve los numerales de las actividades presentes en el documento."""
         ...
 
+    def get_ods_number(self) -> str:
+        """Número de ODS detectado en el documento (dígitos), o ``''``."""
+        ...
+
     def get_activities_overview(self) -> list[WordActivityOverview]:
         """Devuelve numeral, título y cantidad de entregables de cada actividad."""
         ...

@@ -27,6 +27,7 @@ from ods_reporter.application.ports.file_service_port import FileServicePort
 from ods_reporter.application.ports.progress_port import EventLevel, ProgressPort
 from ods_reporter.application.ports.report_writer_port import ReportWriterPort
 from ods_reporter.application.ports.word_processor_port import WordProcessorPort
+from ods_reporter.application.services.ods_validator import OdsCompatibilityValidator
 from ods_reporter.application.services.professional_auditor import ProfessionalAuditor
 from ods_reporter.application.services.report_builder import ReportBuilder
 from ods_reporter.application.services.report_formatter import ReportFormatter
@@ -77,6 +78,7 @@ class _Dependencies:
     report_builder: ReportBuilder = field(default_factory=ReportBuilder)
     auditor: ProfessionalAuditor = field(default_factory=ProfessionalAuditor)
     report_formatter: ReportFormatter = field(default_factory=ReportFormatter)
+    validator: OdsCompatibilityValidator = field(default_factory=OdsCompatibilityValidator)
 
 
 class ProcessODSUseCase:
@@ -132,6 +134,8 @@ class ProcessODSUseCase:
         cancelled = False
         total = len(request.excel_files)
 
+        word_ods_number = self._deps.word_processor.get_ods_number()
+
         for index, excel in enumerate(request.excel_files):
             if self._progress.is_cancelled():
                 cancelled = True
@@ -139,6 +143,17 @@ class ProcessODSUseCase:
             professional = self._read_professional(excel, request.month, read_errors)
             self._progress.progress(index + 1, total)
             if professional is None:
+                continue
+            # Barrera anti "ODS equivocada": un archivo incompatible se rechaza
+            # (con su motivo) y NO se inserta; los demás continúan.
+            check = self._deps.validator.validate(professional, overview, word_ods_number)
+            if not check.compatible:
+                message = (
+                    f"El archivo '{excel.name}' no corresponde a esta ODS: "
+                    f"{check.reason}. No se procesó."
+                )
+                read_errors.append(message)
+                self._progress.event(EventLevel.ERROR, message)
                 continue
             planned.extend(self._plan_professional(len(professionals), professional))
             professionals.append(professional)

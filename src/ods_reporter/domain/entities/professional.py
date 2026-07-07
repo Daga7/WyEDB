@@ -29,12 +29,17 @@ class Professional:
         Actividades adicionales ("otras actividades solicitadas"), ya
         normalizadas y con su fecha incorporada al texto. Se insertan en la
         sección de observaciones del Word.
+    ods_number:
+        Texto del campo "ODS N°" de la cabecera del Excel (crudo, puede venir
+        como "3040727 ECP ODS No. 11"). Se usa para validar que el archivo
+        corresponda a la misma ODS de la plantilla Word.
     """
 
     name: str
     source_file: str
     activities: tuple[Activity, ...] = field(default_factory=tuple)
     other_activities: tuple[ContentItem, ...] = field(default_factory=tuple)
+    ods_number: str = ""
 
     @property
     def activities_with_content(self) -> tuple[Activity, ...]:

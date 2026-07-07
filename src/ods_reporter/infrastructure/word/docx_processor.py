@@ -11,12 +11,23 @@ import logging
 from pathlib import Path
 
 import docx
+from rapidfuzz import fuzz
 
 from ods_reporter.application.ports.word_processor_port import (
     ActivityInsertResult,
     WordActivityOverview,
 )
 from ods_reporter.domain.value_objects.content_item import ContentItem
+from ods_reporter.shared.text_utils import (
+    extract_ods_number,
+    normalize_text,
+    strip_leading_numeral,
+)
+
+# Umbral por debajo del cual el enunciado del Excel y el del Word se consideran
+# actividades DISTINTAS aunque compartan numeral (calibrado con datos reales:
+# misma ODS ~100 de similitud; ODS distinta ~29).
+_LABEL_SIMILARITY_THRESHOLD = 60.0
 from ods_reporter.application.services.entregable_aligner import EntregableAligner
 from ods_reporter.domain.entities.activity import Activity
 from ods_reporter.domain.exceptions import WordProcessError
@@ -46,6 +57,7 @@ class DocxProcessor:
         self._document: docx.Document | None = None
         self._activities: list[WordActivity] = []
         self._observaciones: WordEntregable | None = None
+        self._ods_number: str = ""
         self._by_ordinal: dict[int, WordActivity] = {}
         # Entregables del Word que ya recibieron contenido (para no sobrescribir
         # ni rellenarlos luego con el texto por defecto).
@@ -59,6 +71,7 @@ class DocxProcessor:
         structure = self._reader.read_structure(self._document)
         self._activities = structure.activities
         self._observaciones = structure.observaciones
+        self._ods_number = self._find_ods_number(self._document)
         self._by_ordinal = {a.ordinal: a for a in self._activities}
         self._filled = set()
         logger.info(
@@ -70,6 +83,28 @@ class DocxProcessor:
 
     def get_activity_ordinals(self) -> list[int]:
         return [a.ordinal for a in self._activities]
+
+    def get_ods_number(self) -> str:
+        return self._ods_number
+
+    @staticmethod
+    def _find_ods_number(document: docx.Document) -> str:
+        """Busca el número de ODS en el texto del documento (mejor esfuerzo).
+
+        Recorre los párrafos iniciales y las celdas de las primeras tablas
+        (donde está la cabecera del informe, p. ej. "3040727 ECP ODS No. 11").
+        """
+        for paragraph in document.paragraphs[:40]:
+            number = extract_ods_number(paragraph.text)
+            if number:
+                return number
+        for table in document.tables[:2]:
+            for row in table.rows[:15]:
+                for cell in row.cells:
+                    number = extract_ods_number(cell.text)
+                    if number:
+                        return number
+        return ""
 
     def get_activities_overview(self) -> list[WordActivityOverview]:
         return [
@@ -85,7 +120,9 @@ class DocxProcessor:
         if word_activity is None:
             return self._not_found_result(activity)
         assignments = self._compute_assignments(activity, word_activity)
-        return self._build_result(activity, assignments)
+        return self._build_result(
+            activity, assignments, self._label_mismatch_warnings(activity, word_activity)
+        )
 
     def insert_activity_content(
         self, activity: Activity, target_ordinal: int | None = None
@@ -96,21 +133,41 @@ class DocxProcessor:
         if word_activity is None:
             return self._not_found_result(activity)
 
-        warnings: tuple[str, ...] = ()
         if manual:
             assignments = self._compute_manual_assignments(activity, word_activity)
-            warnings = (
+            warnings: tuple[str, ...] = (
                 f"La actividad {activity.ordinal} se insertó manualmente "
                 f"en el numeral {ordinal} del Word.",
             )
         else:
             assignments = self._compute_assignments(activity, word_activity)
+            warnings = self._label_mismatch_warnings(activity, word_activity)
 
         for word_entregable, items in assignments:
             self._writer.fill_entregable(word_entregable, items)
             self._filled.add(id(word_entregable))
 
         return self._build_result(activity, assignments, warnings)
+
+    def _label_mismatch_warnings(
+        self, activity: Activity, word_activity: WordActivity
+    ) -> tuple[str, ...]:
+        """Advierte cuando el numeral coincide pero el ENUNCIADO es otro.
+
+        Protege contra archivos de otra ODS: mismo numeral, actividad distinta.
+        """
+        excel_label = activity.identity.normalized_label
+        word_label = normalize_text(strip_leading_numeral(word_activity.label))
+        if not excel_label or not word_label:
+            return ()
+        score = float(fuzz.token_sort_ratio(excel_label, word_label))
+        if score >= _LABEL_SIMILARITY_THRESHOLD:
+            return ()
+        return (
+            f"El enunciado de la actividad {activity.ordinal} no coincide con el de "
+            f"la plantilla (similitud {score:.0f}%). Verifique que el archivo "
+            "corresponda a esta ODS.",
+        )
 
     # --- Cálculo de asignaciones (compartido por plan e inserción) ---
 

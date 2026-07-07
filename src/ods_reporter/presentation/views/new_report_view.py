@@ -13,7 +13,7 @@ from collections.abc import Callable
 import customtkinter as ctk
 
 from ods_reporter.application.ports.progress_port import EventLevel
-from ods_reporter.presentation import theme
+from ods_reporter.presentation import branding, theme
 from ods_reporter.presentation.views.components.console_panel import ConsolePanel
 from ods_reporter.presentation.views.components.excel_list_selector import ExcelListSelector
 from ods_reporter.presentation.views.components.progress_panel import ProgressPanel
@@ -77,8 +77,18 @@ class NewReportView(ctk.CTkFrame):
         rail.grid_rowconfigure(2, weight=1)
         self._build_summary_card(rail)
         self._build_state_card(rail)
+        self._build_rail_decoration(rail)
         self._build_cta(rail, on_process)
         self._ready = True
+
+    def _build_rail_decoration(self, rail: ctk.CTkFrame) -> None:
+        """Ilustración del carril derecho (si el recurso existe)."""
+        self._decoration = branding.load_decoration("side_right.png", width=252)
+        if self._decoration is None:
+            return
+        ctk.CTkLabel(rail, image=self._decoration, text="").grid(
+            row=2, column=0, pady=(12, 0), sticky="s"
+        )
 
     def _notify_inputs_changed(self) -> None:
         if self._ready:

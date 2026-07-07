@@ -32,6 +32,7 @@ class Sidebar(ctk.CTkFrame):
 
         self._build_brand()
         self._build_nav()
+        self._build_decoration()
         self._build_footer()
         self.select(NEW_REPORT, notify=False)
 
@@ -80,6 +81,15 @@ class Sidebar(ctk.CTkFrame):
         )
         button.grid(row=row, column=0, pady=3, sticky="ew")
         return button
+
+    def _build_decoration(self) -> None:
+        """Ilustración inferior de la barra lateral (si el recurso existe)."""
+        self._decoration = branding.load_decoration("side_left.png", width=212)
+        if self._decoration is None:
+            return
+        ctk.CTkLabel(self, image=self._decoration, text="").grid(
+            row=3, column=0, padx=14, pady=(12, 0), sticky="s"
+        )
 
     def _build_footer(self) -> None:
         footer = ctk.CTkFrame(

@@ -50,3 +50,31 @@ def load_logo(height: int = 40) -> ctk.CTkImage | None:
         return ctk.CTkImage(light_image=image, dark_image=image, size=(width, height))
     except Exception:  # noqa: BLE001 - sin Pillow o imagen dañada: seguir sin logo
         return None
+
+
+def load_decoration(
+    filename: str, *, width: int, radius: int = 14
+) -> ctk.CTkImage | None:
+    """Imagen decorativa con esquinas redondeadas, o ``None`` si no existe.
+
+    Redondea las esquinas sobre una copia a 2x y la muestra reducida, para que
+    el borde quede nítido y la imagen se integre con las tarjetas de la
+    interfaz en vez de verse "pegada".
+    """
+    path = resource_path(f"assets/{filename}")
+    if not path.exists():
+        return None
+    try:
+        from PIL import Image, ImageDraw
+
+        image = Image.open(path).convert("RGBA")
+        height = max(1, int(width * image.height / image.width))
+        doubled = image.resize((width * 2, height * 2), Image.LANCZOS)
+        mask = Image.new("L", doubled.size, 0)
+        ImageDraw.Draw(mask).rounded_rectangle(
+            (0, 0, doubled.width, doubled.height), radius * 2, fill=255
+        )
+        doubled.putalpha(mask)
+        return ctk.CTkImage(light_image=doubled, dark_image=doubled, size=(width, height))
+    except Exception:  # noqa: BLE001 - una decoración nunca debe tumbar la ventana
+        return None
