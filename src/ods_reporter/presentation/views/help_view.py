@@ -257,9 +257,10 @@ _SECTIONS: list[_Section] = [
             ),
             _Block(
                 "step", 2,
-                "Agrega los Excel de todos los profesionales: «Agregar archivos» "
-                "permite elegir varios a la vez y «Agregar carpeta» toma todos los "
-                "de una carpeta. Los repetidos se ignoran automáticamente.",
+                "Agrega los reportes de todos los profesionales, en Excel (.xlsx, "
+                ".xlsm) o en Word (.docx): «Agregar archivos» permite elegir varios "
+                "a la vez y «Agregar carpeta» toma todos los de una carpeta. Los "
+                "repetidos se ignoran automáticamente.",
             ),
             _Block(
                 "step", 3,
@@ -354,6 +355,14 @@ _SECTIONS: list[_Section] = [
                 "¿Mis datos se suben a internet?",
                 "No. La aplicación funciona completamente sin conexión; no envía "
                 "ni recibe nada de internet.",
+            ),
+            _Block(
+                "faq",
+                "¿Puedo cargar el informe Word de un profesional en vez del Excel?",
+                "Sí. Los .docx con la misma tabla de actividades se leen igual "
+                "que los Excel: las actividades se emparejan por su enunciado "
+                "(aunque el numeral cambie) y lo que no coincida queda como "
+                "«contenido sin ubicación» para que tú decidas su destino.",
             ),
             _Block(
                 "faq",

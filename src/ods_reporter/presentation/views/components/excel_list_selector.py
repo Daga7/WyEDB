@@ -1,9 +1,9 @@
-"""Selector de múltiples archivos Excel con lista acumulable (estilo tarjeta).
+"""Selector de archivos de profesionales (Excel o Word) con lista acumulable.
 
 Permite agregar archivos sueltos (de cualquier carpeta) o una carpeta completa,
 acumulando la selección, mostrando cada archivo como una fila con su estado y
-permitiendo quitar elementos. Pensado para el caso real de 10-30 Excel (uno por
-profesional), posiblemente en carpetas distintas.
+permitiendo quitar elementos. Pensado para el caso real de 10-30 reportes (uno
+por profesional, en Excel .xlsx/.xlsm o Word .docx), en carpetas distintas.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ ChangeCallback = Callable[[int], None]
 
 
 class ExcelListSelector(ctk.CTkFrame):
-    """Lista acumulable de archivos Excel a procesar."""
+    """Lista acumulable de archivos de profesionales a procesar."""
 
     def __init__(
         self,
@@ -52,7 +52,7 @@ class ExcelListSelector(ctk.CTkFrame):
 
         self._title = ctk.CTkLabel(
             header,
-            text="📊  Archivos Excel cargados (0)",
+            text="📊  Archivos de profesionales (0)",
             font=ctk.CTkFont(size=14, weight="bold"),
             anchor="w",
         )
@@ -110,15 +110,21 @@ class ExcelListSelector(ctk.CTkFrame):
 
     def _on_add_files(self) -> None:
         paths = filedialog.askopenfilenames(
-            title="Selecciona archivos Excel",
-            filetypes=[("Libros de Excel", "*.xlsx *.xlsm")],
+            title="Selecciona los reportes de los profesionales",
+            filetypes=[
+                ("Excel o Word de profesionales", "*.xlsx *.xlsm *.docx"),
+                ("Libros de Excel", "*.xlsx *.xlsm"),
+                ("Documentos Word", "*.docx"),
+            ],
         )
         if paths:
             self._files = merge_unique(self._files, list(paths))
             self._refresh()
 
     def _on_add_folder(self) -> None:
-        folder = filedialog.askdirectory(title="Selecciona una carpeta con Excel")
+        folder = filedialog.askdirectory(
+            title="Selecciona una carpeta con reportes (Excel o Word)"
+        )
         if folder:
             self._files = merge_unique(self._files, collect_from_folder(folder))
             self._refresh()
@@ -144,7 +150,7 @@ class ExcelListSelector(ctk.CTkFrame):
             remove_button.configure(state=state)
 
     def _refresh(self) -> None:
-        self._title.configure(text=f"📊  Archivos Excel cargados ({len(self._files)})")
+        self._title.configure(text=f"📊  Archivos de profesionales ({len(self._files)})")
         for child in self._list.winfo_children():
             child.destroy()
         self._buttons = []
@@ -170,9 +176,10 @@ class ExcelListSelector(ctk.CTkFrame):
         ctk.CTkLabel(row, text=Path(path).name, anchor="w").grid(
             row=0, column=0, padx=(10, 4), pady=6, sticky="w"
         )
+        kind = "Word" if path.lower().endswith(".docx") else "Excel"
         ctk.CTkLabel(
             row,
-            text="● Válido",
+            text=f"● {kind}",
             font=ctk.CTkFont(size=11),
             fg_color=theme.SUCCESS_CHIP_BG,
             text_color=theme.SUCCESS_CHIP_TEXT,

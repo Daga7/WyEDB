@@ -10,7 +10,7 @@
 ;   ISCC.exe packaging\installer.iss
 
 #define AppName "ODS Reporter"
-#define AppVersion "3.2.0"
+#define AppVersion "3.3.0"
 #define AppPublisher "S.G.I. S.A.S. Consultoría e Ingeniería"
 #define AppExeName "ODS Reporter.exe"
 

@@ -10,7 +10,7 @@ from typing import Final
 
 # --- Identidad de la aplicación ---
 APP_NAME: Final[str] = "ODS Reporter"
-APP_VERSION: Final[str] = "3.2.0"
+APP_VERSION: Final[str] = "3.3.0"
 
 # --- Meses del año (nombres de las pestañas del Excel, en mayúsculas) ---
 MONTHS: Final[tuple[str, ...]] = (
@@ -83,3 +83,5 @@ LOG_FILE_NAME: Final[str] = "ods_reporter.log"
 # --- Extensiones válidas ---
 EXCEL_EXTENSIONS: Final[tuple[str, ...]] = (".xlsx", ".xlsm")
 WORD_EXTENSIONS: Final[tuple[str, ...]] = (".docx",)
+# Un reporte de profesional puede venir en Excel o en Word (modo Word → Word).
+PROFESSIONAL_FILE_EXTENSIONS: Final[tuple[str, ...]] = EXCEL_EXTENSIONS + WORD_EXTENSIONS

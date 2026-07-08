@@ -1,6 +1,6 @@
 """Módulo "Nuevo informe": carga de archivos, configuración y procesamiento.
 
-Columna principal con tarjetas (plantilla Word, archivos Excel, configuración y
+Columna principal con tarjetas (plantilla Word, archivos de profesionales,
 progreso con consola) y carril derecho con el resumen del proceso, el estado
 actual y el botón de acción principal. La ventana principal inyecta los
 callbacks y consume el estado de los campos.
@@ -237,7 +237,7 @@ class NewReportView(ctk.CTkFrame):
         for index, (key, label) in enumerate(
             (
                 ("template", "📄  Plantilla Word"),
-                ("excels", "📊  Archivos Excel"),
+                ("excels", "📊  Archivos de profesionales"),
                 ("month", "🗓  Mes a procesar"),
                 ("activities", "✅  Actividades encontradas"),
                 ("items", "≣  Viñetas a insertar"),
@@ -270,7 +270,7 @@ class NewReportView(ctk.CTkFrame):
         ).grid(row=0, column=0, padx=14, pady=(12, 4), sticky="w")
         self._state_label = ctk.CTkLabel(
             card,
-            text="Carga la plantilla y los Excel para comenzar.",
+            text="Carga la plantilla y los reportes (Excel o Word) para comenzar.",
             anchor="w",
             justify="left",
             wraplength=210,

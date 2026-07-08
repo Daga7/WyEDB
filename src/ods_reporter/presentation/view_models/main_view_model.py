@@ -20,7 +20,11 @@ from ods_reporter.application.use_cases.process_ods import ProcessODSUseCase, Pr
 from ods_reporter.domain.entities.processing_result import ProcessingResult
 from ods_reporter.presentation.workers.gui_progress import GuiProgress
 from ods_reporter.presentation.workers.processing_worker import ProcessingWorker
-from ods_reporter.shared.constants import EXCEL_EXTENSIONS, MONTHS, WORD_EXTENSIONS
+from ods_reporter.shared.constants import (
+    MONTHS,
+    PROFESSIONAL_FILE_EXTENSIONS,
+    WORD_EXTENSIONS,
+)
 from ods_reporter.shared.result import Result
 
 UseCaseFactory = Callable[[GuiProgress], ProcessODSUseCase]
@@ -65,11 +69,14 @@ class MainViewModel:
             errors.append("La plantilla Word no existe.")
 
         if not inputs.excel_files:
-            errors.append("Selecciona al menos un archivo Excel.")
+            errors.append("Selecciona al menos un archivo de profesionales (Excel o Word).")
         else:
             for excel in inputs.excel_files:
-                if not excel.lower().endswith(EXCEL_EXTENSIONS):
-                    errors.append(f"Archivo Excel no válido: {Path(excel).name}")
+                if not excel.lower().endswith(PROFESSIONAL_FILE_EXTENSIONS):
+                    errors.append(
+                        f"Archivo no válido (se admiten .xlsx, .xlsm y .docx): "
+                        f"{Path(excel).name}"
+                    )
 
         if not inputs.output_dir:
             errors.append("Selecciona la carpeta de salida.")

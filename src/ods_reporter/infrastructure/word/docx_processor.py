@@ -18,11 +18,7 @@ from ods_reporter.application.ports.word_processor_port import (
     WordActivityOverview,
 )
 from ods_reporter.domain.value_objects.content_item import ContentItem
-from ods_reporter.shared.text_utils import (
-    extract_ods_number,
-    normalize_text,
-    strip_leading_numeral,
-)
+from ods_reporter.shared.text_utils import normalize_text, strip_leading_numeral
 
 # Umbral por debajo del cual el enunciado del Excel y el del Word se consideran
 # actividades DISTINTAS aunque compartan numeral (calibrado con datos reales:
@@ -35,6 +31,7 @@ from ods_reporter.infrastructure.word.docx_reader import (
     DocxReader,
     WordActivity,
     WordEntregable,
+    find_ods_number,
 )
 from ods_reporter.infrastructure.word.docx_writer import DocxWriter
 from ods_reporter.shared.text_utils import is_blank_or_placeholder
@@ -71,7 +68,7 @@ class DocxProcessor:
         structure = self._reader.read_structure(self._document)
         self._activities = structure.activities
         self._observaciones = structure.observaciones
-        self._ods_number = self._find_ods_number(self._document)
+        self._ods_number = find_ods_number(self._document)
         self._by_ordinal = {a.ordinal: a for a in self._activities}
         self._filled = set()
         logger.info(
@@ -86,25 +83,6 @@ class DocxProcessor:
 
     def get_ods_number(self) -> str:
         return self._ods_number
-
-    @staticmethod
-    def _find_ods_number(document: docx.Document) -> str:
-        """Busca el número de ODS en el texto del documento (mejor esfuerzo).
-
-        Recorre los párrafos iniciales y las celdas de las primeras tablas
-        (donde está la cabecera del informe, p. ej. "3040727 ECP ODS No. 11").
-        """
-        for paragraph in document.paragraphs[:40]:
-            number = extract_ods_number(paragraph.text)
-            if number:
-                return number
-        for table in document.tables[:2]:
-            for row in table.rows[:15]:
-                for cell in row.cells:
-                    number = extract_ods_number(cell.text)
-                    if number:
-                        return number
-        return ""
 
     def get_activities_overview(self) -> list[WordActivityOverview]:
         return [

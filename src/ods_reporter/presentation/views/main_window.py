@@ -46,7 +46,7 @@ from ods_reporter.shared.result import Result
 
 _POLL_INTERVAL_MS = 120
 
-_STEPS = ["Plantilla", "Excel", "Configuración", "Validación", "Generar"]
+_STEPS = ["Plantilla", "Archivos", "Configuración", "Validación", "Generar"]
 
 
 class MainWindow(ctk.CTk):
@@ -101,7 +101,7 @@ class MainWindow(ctk.CTk):
         ).pack(anchor="w")
         ctk.CTkLabel(
             titles,
-            text="Del Excel de cada profesional al informe Word oficial.",
+            text="Del reporte de cada profesional (Excel o Word) al informe oficial.",
             text_color=theme.MUTED,
         ).pack(anchor="w")
         self._theme_menu = ctk.CTkOptionMenu(
@@ -365,7 +365,7 @@ class MainWindow(ctk.CTk):
             if not template_ok:
                 missing.append("plantilla Word")
             if not excel_count:
-                missing.append("archivos Excel")
+                missing.append("archivos de profesionales")
             if not config_ok:
                 missing.append("carpeta de salida y mes")
             view.set_state_message("Falta: " + ", ".join(missing) + ".")

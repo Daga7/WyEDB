@@ -10,24 +10,38 @@ python-docx, de modo que el escritor (``docx_writer``) pueda insertar después.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from docx.oxml.ns import qn
-from docx.table import _Cell
+from docx.table import Table, _Cell
 
 from ods_reporter.domain.exceptions import WordProcessError
 from ods_reporter.infrastructure.matching.roman_numerals import roman_to_int
-from ods_reporter.shared.text_utils import normalize_text
+from ods_reporter.shared.text_utils import (
+    extract_ods_number,
+    is_blank_or_placeholder,
+    normalize_text,
+)
 
 if TYPE_CHECKING:
     from docx.document import Document
-    from docx.table import Table
     from docx.text.paragraph import Paragraph
 
-# Encabezados de la tabla de actividades (normalizados).
-_TABLE_HEADER_NO = "no"
-_TABLE_HEADER_ACTIVITIES = "actividades"
+# Encabezado de la columna del numeral: variantes reales según la versión de
+# Word / la persona que armó la plantilla ("No", "No.", "N°", "Nro", "Item"…).
+# Se compara sobre el texto normalizado y sin signos (solo letras y dígitos).
+_NO_HEADER_TOKENS = frozenset({"no", "n", "nro", "num", "numero", "item", "id"})
+_NON_ALNUM_RE = re.compile(r"[^a-z0-9]+")
+
+# Máximo de filas iniciales de una tabla donde se busca la fila de encabezado
+# (tolera filas de título/logotipo encima del encabezado real).
+_HEADER_SCAN_ROWS = 10
+
+# Longitud máxima de un encabezado de columna de actividades: un texto largo que
+# contiene "actividad" es contenido, no un encabezado.
+_MAX_ACTIVITIES_HEADER_LEN = 60
 
 # Marcadores de sección dentro de la celda de una actividad (normalizados).
 _MARKER_ACTIVITY = "actividad:"
@@ -81,29 +95,71 @@ class WordStructure:
     observaciones: WordEntregable | None = None
 
 
+@dataclass(slots=True)
+class _TableMatch:
+    """Una tabla candidata: dónde está su encabezado y en qué columnas."""
+
+    table: Table
+    header_row: int
+    no_col: int
+    activities_col: int
+
+
 class DocxReader:
     """Extrae la estructura de actividades de un documento Word."""
 
     def read_structure(self, document: Document) -> WordStructure:
         """Devuelve las actividades y la sección de observaciones (si existe).
 
+        La tabla de actividades se busca por CONTENIDO en todas las tablas del
+        documento (incluidas las anidadas): una fila de encabezado con una
+        columna de numeral ("No", "N°", "Item"…) y una de actividades, en
+        cualquier posición. Si varias tablas parecen candidatas, gana la
+        primera que realmente contenga actividades.
+
         Raises
         ------
         WordProcessError
-            Si no se encuentra la tabla de actividades.
+            Si ninguna tabla del documento tiene esa forma.
         """
-        table = self._find_activities_table(document)
+        candidates = self._find_table_candidates(document)
+        if not candidates:
+            raise WordProcessError(
+                "No se encontró la tabla de actividades: ninguna tabla del "
+                "documento tiene un encabezado tipo 'No'/'N°'/'Item' junto a "
+                "'Actividades'. Verifique que el archivo sea un informe ODS."
+            )
+        first: WordStructure | None = None
+        for candidate in candidates:
+            structure = self._parse_table(candidate)
+            if structure.activities:
+                return structure
+            if first is None:
+                first = structure
+        assert first is not None  # hay al menos una candidata
+        return first
+
+    def _parse_table(self, match: _TableMatch) -> WordStructure:
+        table = match.table
         structure = WordStructure()
         current: WordActivity | None = None
 
         # Se itera a nivel XML (cada <w:tr> tiene sus propias <w:tc>): con celdas
         # combinadas verticalmente, ``row.cells`` de python-docx desplaza columnas.
-        for tr in table._tbl.tr_lst[1:]:  # se omite el encabezado
+        for tr in table._tbl.tr_lst[match.header_row + 1 :]:
             tcs = tr.tc_lst
-            if len(tcs) < 2:
+            if not tcs:
                 continue
-            col_no = _Cell(tcs[0], table)
-            col_activity = _Cell(tcs[1], table)
+            if len(tcs) < 2 or len(tcs) <= match.no_col:
+                # Fila con las columnas combinadas en una sola celda: puede ser
+                # la de observaciones/actividades adicionales.
+                merged = _Cell(tcs[0], table)
+                if self._is_observaciones_cell(merged):
+                    structure.observaciones = self._read_observaciones(merged)
+                    current = None
+                continue
+            col_no = _Cell(tcs[match.no_col], table)
+            col_activity = _Cell(tcs[min(match.activities_col, len(tcs) - 1)], table)
 
             ordinal = self._read_ordinal(col_no)
 
@@ -146,21 +202,62 @@ class DocxReader:
 
     # --- Localización de la tabla ---
 
+    def _find_table_candidates(self, document: Document) -> list[_TableMatch]:
+        """Tablas del documento (anidadas incluidas) con encabezado de actividades."""
+        candidates: list[_TableMatch] = []
+        for table in self._iter_tables(document):
+            found = self._find_header(table)
+            if found is not None:
+                candidates.append(found)
+        return candidates
+
     @staticmethod
-    def _find_activities_table(document: Document) -> Table:
-        for table in document.tables:
-            if not table.rows:
+    def _iter_tables(document: Document) -> list[Table]:
+        """Todas las tablas del cuerpo en orden de documento, anidadas incluidas.
+
+        ``document.tables`` solo devuelve las de primer nivel; iterar los
+        elementos ``<w:tbl>`` del XML alcanza también las tablas dentro de
+        celdas (documentos reorganizados por otras versiones de Word).
+        """
+        return [Table(tbl, document) for tbl in document.element.body.iter(qn("w:tbl"))]
+
+    def _find_header(self, table: Table) -> _TableMatch | None:
+        """Busca la fila de encabezado en las primeras filas de la tabla."""
+        for row_idx, tr in enumerate(table._tbl.tr_lst[:_HEADER_SCAN_ROWS]):
+            tcs = tr.tc_lst
+            if len(tcs) < 2:
                 continue
-            header = table.rows[0].cells
-            if len(header) < 2:
+            texts = [normalize_text(_Cell(tc, table).text) for tc in tcs]
+            no_col = next(
+                (i for i, text in enumerate(texts) if self._is_no_header(text)), None
+            )
+            if no_col is None:
                 continue
-            col0 = normalize_text(header[0].text)
-            col1 = normalize_text(header[1].text)
-            if col0 == _TABLE_HEADER_NO and col1 == _TABLE_HEADER_ACTIVITIES:
-                return table
-        raise WordProcessError(
-            "No se encontró la tabla de actividades (encabezado 'No' / 'Actividades')."
-        )
+            activities_col = next(
+                (
+                    i
+                    for i, text in enumerate(texts)
+                    if i > no_col and self._is_activities_header(text)
+                ),
+                None,
+            )
+            if activities_col is None:
+                continue
+            return _TableMatch(
+                table=table,
+                header_row=row_idx,
+                no_col=no_col,
+                activities_col=activities_col,
+            )
+        return None
+
+    @staticmethod
+    def _is_no_header(normalized: str) -> bool:
+        return _NON_ALNUM_RE.sub("", normalized) in _NO_HEADER_TOKENS
+
+    @staticmethod
+    def _is_activities_header(normalized: str) -> bool:
+        return "actividad" in normalized and len(normalized) <= _MAX_ACTIVITIES_HEADER_LEN
 
     # --- Lectura de celdas ---
 
@@ -229,6 +326,46 @@ class DocxReader:
         if realizadas_idx is not None and realizadas_idx + 1 < len(paragraphs):
             return paragraphs[realizadas_idx + 1]
         return None
+
+
+# --- Utilidades sobre documentos ya leídos ---
+
+
+def entregable_content_texts(entregable: WordEntregable) -> list[str]:
+    """Textos de contenido ya escritos en un entregable (sus viñetas no vacías).
+
+    Es la operación inversa del escritor: recupera lo que un profesional
+    diligenció en su documento Word (modo Word → Word). Los slots vacíos o con
+    solo un marcador de posición ("-", "•") se ignoran.
+    """
+    texts: list[str] = []
+    for paragraph in entregable.cell.paragraphs:
+        if not _is_list_paragraph(paragraph):
+            continue
+        text = paragraph.text.strip()
+        if not text or is_blank_or_placeholder(text):
+            continue
+        texts.append(text)
+    return texts
+
+
+def find_ods_number(document: Document) -> str:
+    """Busca el número de ODS en el texto del documento (mejor esfuerzo).
+
+    Recorre los párrafos iniciales y las celdas de las primeras tablas (donde
+    está la cabecera del informe, p. ej. "3040727 ECP ODS No. 11").
+    """
+    for paragraph in document.paragraphs[:40]:
+        number = extract_ods_number(paragraph.text)
+        if number:
+            return number
+    for table in document.tables[:2]:
+        for row in table.rows[:15]:
+            for cell in row.cells:
+                number = extract_ods_number(cell.text)
+                if number:
+                    return number
+    return ""
 
 
 # --- Utilidades de párrafos ---

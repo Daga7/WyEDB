@@ -1,4 +1,4 @@
-"""Lógica pura para reunir archivos Excel (acumular, deduplicar, leer carpetas).
+"""Lógica pura para reunir archivos de profesionales (Excel o Word).
 
 Se separa de la interfaz para poder probarla sin abrir ventanas.
 """
@@ -8,13 +8,13 @@ from __future__ import annotations
 from collections.abc import Iterable
 from pathlib import Path
 
-from ods_reporter.shared.constants import EXCEL_EXTENSIONS
+from ods_reporter.shared.constants import PROFESSIONAL_FILE_EXTENSIONS
 
 
 def collect_from_folder(folder: str | Path) -> list[str]:
-    """Devuelve, ordenados, los Excel (.xlsx/.xlsm) directamente dentro de ``folder``.
+    """Devuelve, ordenados, los reportes (.xlsx/.xlsm/.docx) dentro de ``folder``.
 
-    Ignora archivos temporales de Excel (los que empiezan por ``~$``).
+    Ignora archivos temporales de Office (los que empiezan por ``~$``).
     """
     base = Path(folder)
     if not base.is_dir():
@@ -23,7 +23,7 @@ def collect_from_folder(folder: str | Path) -> list[str]:
         str(path)
         for path in sorted(base.iterdir())
         if path.is_file()
-        and path.suffix.lower() in EXCEL_EXTENSIONS
+        and path.suffix.lower() in PROFESSIONAL_FILE_EXTENSIONS
         and not path.name.startswith("~$")
     ]
     return found

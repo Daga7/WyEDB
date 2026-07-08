@@ -1,8 +1,12 @@
-"""Caso de uso principal: procesar una ODS (Excel(es) -> Word).
+"""Caso de uso principal: procesar una ODS (reportes de profesionales -> Word).
+
+Los reportes pueden venir en Excel (modo clásico, el numeral manda) o en Word
+(modo Word → Word, donde manda el enunciado de la actividad); el lector
+enrutado y el remapeador ocultan la diferencia y el resto del flujo es único.
 
 Orquesta todo el flujo, dejando el documento original intacto y reportando
-progreso y eventos. Diseñado para ser robusto: un error en un Excel no detiene el
-procesamiento de los demás; los errores se acumulan y el proceso continúa.
+progreso y eventos. Diseñado para ser robusto: un error en un archivo no detiene
+el procesamiento de los demás; los errores se acumulan y el proceso continúa.
 
 El flujo está dividido en dos fases, para poder mostrar una **vista previa**:
 
@@ -27,6 +31,7 @@ from ods_reporter.application.ports.file_service_port import FileServicePort
 from ods_reporter.application.ports.progress_port import EventLevel, ProgressPort
 from ods_reporter.application.ports.report_writer_port import ReportWriterPort
 from ods_reporter.application.ports.word_processor_port import WordProcessorPort
+from ods_reporter.application.services.activity_remapper import ActivityLabelRemapper
 from ods_reporter.application.services.ods_validator import OdsCompatibilityValidator
 from ods_reporter.application.services.professional_auditor import ProfessionalAuditor
 from ods_reporter.application.services.report_builder import ReportBuilder
@@ -41,7 +46,7 @@ from ods_reporter.domain.entities.professional import Professional
 from ods_reporter.domain.exceptions import InvalidInputError, ODSReporterError
 from ods_reporter.shared.constants import (
     DEFAULT_EMPTY_ACTIVITY_TEXT,
-    EXCEL_EXTENSIONS,
+    PROFESSIONAL_FILE_EXTENSIONS,
     WORD_EXTENSIONS,
 )
 from ods_reporter.shared.result import Err, Ok, Result
@@ -79,6 +84,7 @@ class _Dependencies:
     auditor: ProfessionalAuditor = field(default_factory=ProfessionalAuditor)
     report_formatter: ReportFormatter = field(default_factory=ReportFormatter)
     validator: OdsCompatibilityValidator = field(default_factory=OdsCompatibilityValidator)
+    remapper: ActivityLabelRemapper = field(default_factory=ActivityLabelRemapper)
 
 
 class ProcessODSUseCase:
@@ -125,12 +131,13 @@ class ProcessODSUseCase:
         self._progress.event(
             EventLevel.INFO,
             f"Plantilla analizada: {len(overview)} actividad(es). "
-            f"Analizando {len(request.excel_files)} archivo(s) de Excel…",
+            f"Analizando {len(request.excel_files)} archivo(s) de profesionales…",
         )
 
         professionals: list[Professional] = []
         planned: list[PlannedActivity] = []
         read_errors: list[str] = []
+        general_warnings: list[str] = []
         cancelled = False
         total = len(request.excel_files)
 
@@ -140,6 +147,14 @@ class ProcessODSUseCase:
             if self._progress.is_cancelled():
                 cancelled = True
                 break
+            if self._is_template_itself(excel, request.word_template):
+                message = (
+                    f"'{excel.name}' es la misma plantilla Word de destino: se omitió."
+                )
+                general_warnings.append(message)
+                self._progress.event(EventLevel.WARNING, message)
+                self._progress.progress(index + 1, total)
+                continue
             professional = self._read_professional(excel, request.month, read_errors)
             self._progress.progress(index + 1, total)
             if professional is None:
@@ -155,6 +170,17 @@ class ProcessODSUseCase:
                 read_errors.append(message)
                 self._progress.event(EventLevel.ERROR, message)
                 continue
+            # Modo Word → Word: el numeral del documento del profesional puede no
+            # coincidir con el de la plantilla; manda el ENUNCIADO de la actividad.
+            if excel.suffix.lower() in WORD_EXTENSIONS:
+                professional, remap_warnings = self._deps.remapper.remap(
+                    professional, overview
+                )
+                origin = self._origin_label(professional)
+                for warning in remap_warnings:
+                    message = f"{warning} [{origin}]"
+                    general_warnings.append(message)
+                    self._progress.event(EventLevel.WARNING, message)
             planned.extend(self._plan_professional(len(professionals), professional))
             professionals.append(professional)
 
@@ -163,11 +189,11 @@ class ProcessODSUseCase:
 
         other_count = sum(len(p.other_activities) for p in professionals)
         has_other_section = self._deps.word_processor.has_other_activities_section()
-        general_warnings: list[str] = []
         if other_count:
             self._progress.event(
                 EventLevel.INFO,
-                f"{other_count} actividad(es) adicional(es) detectada(s) en los Excel.",
+                f"{other_count} actividad(es) adicional(es) detectada(s) "
+                "en los archivos.",
             )
             if not has_other_section:
                 general_warnings.append(
@@ -301,12 +327,27 @@ class ProcessODSUseCase:
         if request.word_template.suffix.lower() not in WORD_EXTENSIONS:
             raise InvalidInputError("La plantilla debe ser un archivo .docx")
         if not request.excel_files:
-            raise InvalidInputError("No se seleccionó ningún archivo Excel.")
+            raise InvalidInputError("No se seleccionó ningún archivo de profesionales.")
         for excel in request.excel_files:
-            if excel.suffix.lower() not in EXCEL_EXTENSIONS:
-                raise InvalidInputError(f"Archivo Excel no válido: {excel.name}")
+            if excel.suffix.lower() not in PROFESSIONAL_FILE_EXTENSIONS:
+                raise InvalidInputError(
+                    f"Archivo de profesional no válido: {excel.name} "
+                    "(se admiten Excel .xlsx/.xlsm y Word .docx)."
+                )
         if not request.month.strip():
             raise InvalidInputError("Debe indicarse el mes a procesar.")
+
+    @staticmethod
+    def _is_template_itself(candidate: Path, template: Path) -> bool:
+        """``True`` si el archivo de profesional ES la plantilla de destino.
+
+        Evita que, al agregar una carpeta completa, la propia plantilla entre
+        como si fuera el reporte de un profesional.
+        """
+        try:
+            return candidate.resolve() == template.resolve()
+        except OSError:
+            return False
 
     # --- Lectura por profesional ---
 
