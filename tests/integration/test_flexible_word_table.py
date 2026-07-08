@@ -145,6 +145,38 @@ def test_processor_opens_variant_template(tmp_path: Path) -> None:
     assert [(o.ordinal, o.entregable_count) for o in overview] == [(1, 1), (2, 1)]
 
 
+def test_numbered_decoy_table_without_slots_is_not_chosen(tmp_path: Path) -> None:
+    """Un cronograma/índice numerado ANTES de la tabla real no debe ganarle.
+
+    El cronograma también tiene encabezado tipo 'No'/'Actividades' y filas
+    numeradas, pero sus celdas no tienen slots de inserción (viñetas de
+    plantilla): la tabla real se reconoce por tenerlos.
+    """
+    path = tmp_path / "con_cronograma.docx"
+    document = docx.Document()
+
+    decoy = document.add_table(rows=3, cols=2)
+    decoy.rows[0].cells[0].text = "No"
+    decoy.rows[0].cells[1].text = "Actividades programadas"
+    decoy.rows[1].cells[0].text = "1"
+    decoy.rows[1].cells[1].text = "Semana 1: inducción del proyecto"
+    decoy.rows[2].cells[0].text = "2"
+    decoy.rows[2].cells[1].text = "Semana 2: entrega parcial"
+
+    table = document.add_table(rows=1 + len(_ACTIVITIES), cols=2)
+    table.rows[0].cells[0].text = "No"
+    table.rows[0].cells[1].text = "Actividades"
+    _fill_activity_rows(table, first_row=1, lead_cols=0)
+    document.save(str(path))
+
+    structure = DocxReader().read_structure(docx.Document(str(path)))
+
+    # Se eligió la tabla REAL: enunciados correctos y con slots de inserción.
+    assert "Asesoría ambiental" in structure.activities[0].label
+    assert all(a.entregables for a in structure.activities)
+    assert not any("Semana" in a.label for a in structure.activities)
+
+
 def test_document_without_activities_table_raises(tmp_path: Path) -> None:
     path = tmp_path / "sin_tabla.docx"
     document = docx.Document()

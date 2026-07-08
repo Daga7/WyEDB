@@ -10,6 +10,7 @@ python-docx, de modo que el escritor (``docx_writer``) pueda insertar después.
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
@@ -28,6 +29,8 @@ from ods_reporter.shared.text_utils import (
 if TYPE_CHECKING:
     from docx.document import Document
     from docx.text.paragraph import Paragraph
+
+logger = logging.getLogger(__name__)
 
 # Encabezado de la columna del numeral: variantes reales según la versión de
 # Word / la persona que armó la plantilla ("No", "No.", "N°", "Nro", "Item"…).
@@ -114,8 +117,11 @@ class DocxReader:
         La tabla de actividades se busca por CONTENIDO en todas las tablas del
         documento (incluidas las anidadas): una fila de encabezado con una
         columna de numeral ("No", "N°", "Item"…) y una de actividades, en
-        cualquier posición. Si varias tablas parecen candidatas, gana la
-        primera que realmente contenga actividades.
+        cualquier posición. Si varias tablas parecen candidatas, gana la que
+        tenga más actividades con **slot de inserción** (la viñeta de
+        plantilla): esa es la firma de la tabla real, frente a cronogramas o
+        índices que también traen filas numeradas pero no tienen dónde
+        insertar contenido.
 
         Raises
         ------
@@ -129,15 +135,37 @@ class DocxReader:
                 "documento tiene un encabezado tipo 'No'/'N°'/'Item' junto a "
                 "'Actividades'. Verifique que el archivo sea un informe ODS."
             )
-        first: WordStructure | None = None
+
+        best: WordStructure | None = None
+        best_key = (0, 0)
+        parsed_first: WordStructure | None = None
         for candidate in candidates:
             structure = self._parse_table(candidate)
-            if structure.activities:
-                return structure
-            if first is None:
-                first = structure
-        assert first is not None  # hay al menos una candidata
-        return first
+            if parsed_first is None:
+                parsed_first = structure
+            if not structure.activities:
+                continue
+            with_slots = sum(1 for a in structure.activities if a.entregables)
+            key = (with_slots, len(structure.activities))
+            # ``>`` estricto: a igual calidad gana la primera en orden de documento.
+            if best is None or key > best_key:
+                best, best_key = structure, key
+
+        chosen = best if best is not None else parsed_first
+        assert chosen is not None  # hay al menos una candidata
+        logger.info(
+            "Tabla de actividades elegida entre %d candidata(s): "
+            "%d actividad(es), %d con slot de inserción.",
+            len(candidates),
+            len(chosen.activities),
+            sum(1 for a in chosen.activities if a.entregables),
+        )
+        if chosen.activities:
+            preview = "; ".join(
+                f"{a.ordinal}: {a.label[:60]}" for a in chosen.activities[:3]
+            )
+            logger.debug("Primeras actividades leídas del Word: %s", preview)
+        return chosen
 
     def _parse_table(self, match: _TableMatch) -> WordStructure:
         table = match.table
