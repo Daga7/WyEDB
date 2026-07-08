@@ -177,6 +177,85 @@ def test_numbered_decoy_table_without_slots_is_not_chosen(tmp_path: Path) -> Non
     assert not any("Semana" in a.label for a in structure.activities)
 
 
+def _build_ecopetrol_style(path: Path) -> None:
+    """Plantilla tipo ECOPETROL (FO-GT-EP-093): rótulo "Alcance específico:",
+    columnas de porcentaje y numerales romanos con punto ("VI.", "XXI.\xa0")."""
+    document = docx.Document()
+    labels = [
+        ("I", "Coordinación y seguimiento a la ejecución técnica"),
+        ("VI.", "Dimensionar necesidades de recursos y equipos"),
+        ("XXI.\xa0", "Seguimiento a la facturación, pagos y causación"),
+    ]
+    table = document.add_table(rows=1 + len(labels), cols=4)
+    header = table.rows[0].cells
+    header[0].text = "N.º"
+    header[1].text = "Descripción de Actividad"
+    header[2].text = "% Plan"
+    header[3].text = "% Real"
+    for index, (numeral, title) in enumerate(labels, start=1):
+        cells = table.rows[index].cells
+        cells[0].text = numeral
+        cell = cells[1]
+        cell.paragraphs[0].text = "Alcance específico:"
+        cell.add_paragraph(f"\xa0\xa0 {['i', 'vi', 'xxi'][index - 1]}.\xa0\xa0 {title}")
+        cell.add_paragraph("Descripción del entregable: ")
+        cell.add_paragraph(f"Entregable de {title.lower()}")
+        cell.add_paragraph("Descripción de las actividades realizadas:")
+        cell.add_paragraph("", style="List Bullet")
+        cells[2].text = "82%"
+        cells[3].text = "82%"
+    document.save(str(path))
+
+
+def test_ecopetrol_style_template(tmp_path: Path) -> None:
+    """Numerales con punto y rótulo 'Alcance específico:' se leen bien.
+
+    Regresión del caso real ODS 13: antes, "VI." perdía su numeral (la fila se
+    pegaba a la actividad anterior) y el enunciado salía como el rótulo
+    "Alcance específico:", con lo que la validación rechazaba archivos buenos.
+    """
+    path = tmp_path / "ecopetrol.docx"
+    _build_ecopetrol_style(path)
+
+    structure = DocxReader().read_structure(docx.Document(str(path)))
+
+    assert [a.ordinal for a in structure.activities] == [1, 6, 21]
+    labels = [a.label for a in structure.activities]
+    assert labels[0].startswith("Coordinación y seguimiento")
+    assert labels[1].startswith("Dimensionar necesidades")
+    assert labels[2].startswith("Seguimiento a la facturación")
+    assert not any("Alcance" in label for label in labels)
+    assert all(len(a.entregables) == 1 for a in structure.activities)
+    # El entregable también se leyó con su marcador clásico.
+    assert structure.activities[0].entregables[0].entregable_text.startswith("Entregable de")
+
+
+def test_real_ods13_template_and_excel_are_compatible(tmp_path: Path) -> None:
+    """Con los archivos reales de la ODS 13, la validación acepta el Excel."""
+    word = Path("tests/fixtures/ODS13_Word.docx")
+    excel = Path("tests/fixtures/ODS13_Excel.xlsx")
+    if not word.exists() or not excel.exists():
+        pytest.skip("Faltan los fixtures reales de la ODS 13")
+
+    from tests.integration.test_process_ods import FakeProgress, _make_use_case
+    from ods_reporter.application.use_cases.process_ods import ProcessRequest
+
+    use_case = _make_use_case(FakeProgress())
+    request = ProcessRequest(
+        word_template=word,
+        excel_files=(excel,),
+        output_dir=tmp_path,
+        month="ENERO",
+        output_name="ods13.docx",
+    )
+    plan = use_case.plan(request).unwrap()
+
+    assert plan.read_errors == ()
+    assert len(plan.professionals) == 1
+    assert len(plan.word_activities) == 21
+    assert plan.unmatched == ()
+
+
 def test_document_without_activities_table_raises(tmp_path: Path) -> None:
     path = tmp_path / "sin_tabla.docx"
     document = docx.Document()

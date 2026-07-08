@@ -24,6 +24,7 @@ from ods_reporter.shared.text_utils import (
     extract_ods_number,
     is_blank_or_placeholder,
     normalize_text,
+    strip_leading_numeral,
 )
 
 if TYPE_CHECKING:
@@ -47,9 +48,16 @@ _HEADER_SCAN_ROWS = 10
 _MAX_ACTIVITIES_HEADER_LEN = 60
 
 # Marcadores de sección dentro de la celda de una actividad (normalizados).
+# "Actividad:" es el rótulo clásico; en las plantillas tipo ECOPETROL
+# (FO-GT-EP-093) el enunciado viene bajo el rótulo "Alcance específico:".
 _MARKER_ACTIVITY = "actividad:"
+_MARKER_ALCANCE = "alcance especifico"
 _MARKER_ENTREGABLE = "descripcion del entregable:"
 _MARKER_REALIZADAS = "descripcion de las actividades realizadas:"
+_ALL_MARKERS = (_MARKER_ACTIVITY, _MARKER_ALCANCE, _MARKER_ENTREGABLE, _MARKER_REALIZADAS)
+
+# Signos que pueden acompañar al numeral en su celda ("VI.", "7)", "X -").
+_ORDINAL_TRAILING_CHARS = " .):- \t"
 
 # Inicio (normalizado) de la fila de observaciones/actividades adicionales, que
 # aparece tras la última actividad ("Observaciones generales y/o actividades
@@ -291,8 +299,13 @@ class DocxReader:
 
     @staticmethod
     def _read_ordinal(cell: _Cell) -> int | None:
-        """Lee el numeral del 'No': admite romanos (I, II) y arábigos (1, 2)."""
-        text = cell.text.strip()
+        """Lee el numeral del 'No': admite romanos (I, II) y arábigos (1, 2).
+
+        Tolera signos de acompañamiento reales: "VI.", "XIII. ", "7)", con
+        espacios duros (``\\xa0``) incluidos. Sin esta limpieza, una fila con
+        "VI." perdería su numeral y se pegaría a la actividad anterior.
+        """
+        text = cell.text.strip().rstrip(_ORDINAL_TRAILING_CHARS)
         roman = roman_to_int(text)
         if roman is not None:
             return roman
@@ -305,11 +318,12 @@ class DocxReader:
     @staticmethod
     def _read_label(cell: _Cell) -> str:
         paragraphs = cell.paragraphs
-        idx = _find_marker(paragraphs, _MARKER_ACTIVITY)
-        if idx is not None:
-            return _text_until_next_marker(paragraphs, idx)
-        # Plantillas sin el marcador "Actividad:": el título es el primer texto.
-        return _first_title_text(paragraphs)
+        for marker in (_MARKER_ACTIVITY, _MARKER_ALCANCE):
+            idx = _find_marker(paragraphs, marker)
+            if idx is not None:
+                return _clean_label(_text_until_next_marker(paragraphs, idx))
+        # Plantillas sin rótulo de actividad: el título es el primer texto.
+        return _clean_label(_first_title_text(paragraphs))
 
     def _read_entregable(self, cell: _Cell) -> WordEntregable | None:
         """Extrae un entregable de la celda, soportando dos formatos de plantilla:
@@ -398,19 +412,28 @@ def find_ods_number(document: Document) -> str:
 
 # --- Utilidades de párrafos ---
 
+def _clean_label(text: str) -> str:
+    """Deja el enunciado presentable: espacios normalizados y sin numeral inicial.
+
+    Los documentos reales traen espacios duros (``\\xa0``) y el numeral repetido
+    dentro del texto ("i.\\xa0 Coordinación…"); la identidad ya normaliza para
+    comparar, esto solo evita mostrar ruido en la revisión.
+    """
+    return strip_leading_numeral(" ".join(text.split()))
+
+
 def _first_title_text(paragraphs: list[Paragraph]) -> str:
     """Primer texto que no es viñeta ni un encabezado de sección conocido.
 
     En plantillas sin marcadores, corresponde al título de la actividad.
     """
-    markers = (_MARKER_ACTIVITY, _MARKER_ENTREGABLE, _MARKER_REALIZADAS)
     for paragraph in paragraphs:
         if _is_list_paragraph(paragraph):
             continue
         text = paragraph.text.strip()
         if not text:
             continue
-        if any(normalize_text(text).startswith(marker) for marker in markers):
+        if any(normalize_text(text).startswith(marker) for marker in _ALL_MARKERS):
             continue
         return text
     return ""
@@ -439,10 +462,10 @@ def _find_marker(paragraphs: list[Paragraph], marker: str) -> int | None:
 def _text_until_next_marker(paragraphs: list[Paragraph], start: int) -> str:
     """Texto entre el marcador en ``start`` y el siguiente marcador conocido.
 
-    Incluye lo que venga tras los dos puntos del propio marcador (si lo hay) y los
-    párrafos siguientes hasta encontrar otro encabezado de sección.
+    Incluye lo que venga tras los dos puntos del propio marcador (si lo hay) y
+    los párrafos siguientes hasta encontrar otro encabezado de sección o una
+    viñeta de contenido (las viñetas nunca hacen parte del enunciado).
     """
-    markers = (_MARKER_ACTIVITY, _MARKER_ENTREGABLE, _MARKER_REALIZADAS)
     pieces: list[str] = []
 
     first = paragraphs[start].text
@@ -452,8 +475,10 @@ def _text_until_next_marker(paragraphs: list[Paragraph], start: int) -> str:
             pieces.append(after_colon)
 
     for paragraph in paragraphs[start + 1 :]:
+        if _is_list_paragraph(paragraph):
+            break
         normalized = normalize_text(paragraph.text)
-        if any(normalized.startswith(m) for m in markers):
+        if any(normalized.startswith(m) for m in _ALL_MARKERS):
             break
         text = paragraph.text.strip()
         if text:
