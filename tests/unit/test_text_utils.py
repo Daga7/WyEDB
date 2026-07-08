@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from ods_reporter.shared.text_utils import (
+    clean_content_line,
     collapse_whitespace,
     extract_ods_number,
     normalize_text,
@@ -50,6 +51,51 @@ def test_strip_leading_numeral(entrada: str, esperado: str) -> None:
 def test_strip_leading_numeral_only_strips_once() -> None:
     # Solo se elimina la primera numeración, no las internas.
     assert strip_leading_numeral("1. 2. doble") == "2. doble"
+
+
+@pytest.mark.parametrize(
+    ("entrada", "esperado"),
+    [
+        # Numeral romano/arábigo sin punto, seguido de espacios (duros o dobles).
+        ("xiii\xa0\xa0\xa0 Acompañar la elaboración", "Acompañar la elaboración"),
+        ("13  Elaborar informe", "Elaborar informe"),
+        ("iv\xa0Direccionar estudios", "Direccionar estudios"),
+        # NO se toca una sola letra ni el texto que empieza con espacios simples.
+        ("a continuación se detalla", "a continuación se detalla"),
+        ("12 unidades entregadas", "12 unidades entregadas"),
+    ],
+)
+def test_strip_leading_numeral_without_separator(entrada: str, esperado: str) -> None:
+    assert strip_leading_numeral(entrada) == esperado
+
+
+@pytest.mark.parametrize(
+    ("linea", "esperado"),
+    [
+        # Guion bajo: el separador más común en los Excel reales.
+        ("_Gestión para respuesta", "Gestión para respuesta"),
+        ("_ Se elabora informe", "Se elabora informe"),
+        # Combinaciones de marcadores: se quitan todas las capas.
+        ("_- doble marcador", "doble marcador"),
+        ("__doble guion bajo", "doble guion bajo"),
+        ("1. - numeral y guion", "numeral y guion"),
+        # Viñetas clásicas.
+        ("• Seguimiento", "Seguimiento"),
+        ("- Radicación ICA", "Radicación ICA"),
+        ("* item", "item"),
+        # NO se tocan paréntesis ni comillas (parte real del contenido).
+        ("(DIR) reunión", "(DIR) reunión"),
+        ('informe "BALANCE ODS"', 'informe "BALANCE ODS"'),
+        # Guion interno intacto.
+        ("Reunión - seguimiento diario", "Reunión - seguimiento diario"),
+        # Número real de contenido preservado.
+        ("3 ICA radicados", "3 ICA radicados"),
+        # Marcador suelto -> vacío.
+        ("_- ", ""),
+    ],
+)
+def test_clean_content_line(linea: str, esperado: str) -> None:
+    assert clean_content_line(linea) == esperado
 
 
 @pytest.mark.parametrize(

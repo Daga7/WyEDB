@@ -22,12 +22,30 @@ _LEADING_NUMERAL_RE = re.compile(
     re.IGNORECASE,
 )
 
-# Viñeta inicial sin numeral: guion, asterisco, círculo u otro símbolo de lista
-# seguido de espacio.
+# Numeral inicial SIN separador de puntuación, seguido solo de espacios.
+# Cubre etiquetas reales tipo "xiii   Acompañar…" o "13  Elaborar…" (con espacios
+# duros \xa0), donde el numeral no lleva punto. Se limita a números arábigos y a
+# romanos (>=1 carácter romano), NUNCA a una sola letra suelta, para no borrar
+# palabras reales como "a continuación". Exige >=2 espacios o un espacio duro como
+# separador, señal de que es una numeración y no la primera palabra del texto.
+_LEADING_NUMERAL_NOSEP_RE = re.compile(
+    r"^\s*(?:\d+|[ivxlcdm]+)(?:\xa0+|\s{2,})",
+    re.IGNORECASE,
+)
+
+# Viñeta/separador inicial sin numeral: guion, asterisco, círculo, guion bajo u
+# otro símbolo de lista. Real en los Excel de los profesionales: el separador más
+# común es "_" (guion bajo), seguido de "- ", "•", "*".
 #   "- Radicación ICA"  -> "Radicación ICA"
 #   "• Seguimiento"     -> "Seguimiento"
 #   "○ Círculo"         -> "Círculo"
-_LEADING_BULLET_RE = re.compile(r"^\s*[-–—•*·◦○●∙▪▫‣º°+~]+\s+")
+#   "_Gestión"          -> "Gestión"
+#   "_ Se elabora"      -> "Se elabora"
+# Nota: NO se incluyen '(' ni '"' porque suelen ser parte real del contenido
+# (p. ej. '(DIR)', 'informe "BALANCE ODS"'). El espacio final es opcional para
+# cubrir el caso pegado ("_Gestión") sin exigir separador.
+_BULLET_CHARS = r"-–—•*·◦○●∙▪▫‣º°+~_"
+_LEADING_BULLET_RE = re.compile(rf"^\s*[{_BULLET_CHARS}]+\s*")
 
 # Número "pelado" inicial (sin punto ni paréntesis): "1 ", "12 ".
 # Se usa SOLO cuando el contexto indica una lista numerada (ver ContentNormalizer),
@@ -61,9 +79,15 @@ def strip_leading_numeral(text: str) -> str:
     Ejemplos:
         ``"i. Identificar y analizar"`` -> ``"Identificar y analizar"``
         ``"1) Cargar soporte"``         -> ``"Cargar soporte"``
+        ``"xiii   Acompañar"``          -> ``"Acompañar"`` (numeral sin punto)
         ``"Sin numeral"``               -> ``"Sin numeral"``
     """
-    return _LEADING_NUMERAL_RE.sub("", text, count=1).strip()
+    without = _LEADING_NUMERAL_RE.sub("", text, count=1)
+    if without == text:
+        # No había numeral con separador de puntuación; probamos el numeral
+        # "pelado" seguido solo de espacios (romano/arábigo + espacios/duros).
+        without = _LEADING_NUMERAL_NOSEP_RE.sub("", text, count=1)
+    return without.strip()
 
 
 def strip_leading_bullet(text: str) -> str:
@@ -110,13 +134,24 @@ def extract_ods_number(text: str) -> str:
 
 
 def clean_content_line(text: str) -> str:
-    """Limpia una línea de contenido: quita numeración/viñeta inicial y colapsa espacios.
+    """Limpia una línea de contenido: quita numeración/viñetas iniciales y colapsa espacios.
 
-    Quita prefijos de lista (``-``, ``*``, ``•``, ``○``, ``1.``, ``1)``, ``a.``, ``i.``…)
-    y reduce los espacios sobrantes (internos y de los extremos). No toca el resto del
-    texto (mayúsculas, tildes, puntuación). El número "pelado" (``1 ``) lo gestiona el
-    normalizador, que sabe si la celda es una lista numerada.
+    Aplica la regla del punto 2 del negocio: tras cada salto de línea (esta función
+    se llama por línea) se elimina cualquier prefijo de lista/separador que no sea
+    texto real —``-``, ``*``, ``•``, ``○``, ``_``, ``1.``, ``1)``, ``a.``, ``i.``…—
+    y se reducen los espacios sobrantes. Se hace de forma **repetida** para cubrir
+    combinaciones reales (``"_- "``, ``"1. - "``, ``"__"``), deteniéndose en cuanto
+    empieza el texto.
+
+    No se tocan ``(`` ni ``"`` (suelen ser parte real del contenido), ni el resto
+    del texto (mayúsculas, tildes, puntuación). El número "pelado" (``1 ``) lo
+    gestiona el normalizador, que sabe si la celda es una lista numerada.
     """
-    collapsed = collapse_whitespace(text)
-    without_numeral = strip_leading_numeral(collapsed)
-    return strip_leading_bullet(without_numeral)
+    result = collapse_whitespace(text)
+    # Quita capas de numeral/viñeta hasta que no reste ninguno (o quede vacío).
+    while result:
+        stripped = strip_leading_bullet(strip_leading_numeral(result))
+        if stripped == result:
+            break
+        result = stripped
+    return result

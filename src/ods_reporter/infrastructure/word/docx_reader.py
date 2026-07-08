@@ -48,13 +48,30 @@ _HEADER_SCAN_ROWS = 10
 _MAX_ACTIVITIES_HEADER_LEN = 60
 
 # Marcadores de sección dentro de la celda de una actividad (normalizados).
-# "Actividad:" es el rótulo clásico; en las plantillas tipo ECOPETROL
-# (FO-GT-EP-093) el enunciado viene bajo el rótulo "Alcance específico:".
+# "Actividad:" es el rótulo clásico; algunas plantillas (p. ej. ODS 18) usan el
+# plural "Actividades:" y en las tipo ECOPETROL (FO-GT-EP-093) el enunciado viene
+# bajo el rótulo "Alcance específico:". En todos los casos el ENUNCIADO real va en
+# el/los párrafo(s) que siguen al rótulo, no en el rótulo mismo.
 _MARKER_ACTIVITY = "actividad:"
+_MARKER_ACTIVITIES = "actividades:"
 _MARKER_ALCANCE = "alcance especifico"
+# El rótulo del entregable aparece como "Descripción del entregable:" y también,
+# en algunas actividades (p. ej. ODS 18), como "Descripción entregable:" (sin
+# "del"). Ambas variantes deben cerrar el enunciado para no arrastrar el texto del
+# entregable dentro de la etiqueta de la actividad.
 _MARKER_ENTREGABLE = "descripcion del entregable:"
+_MARKER_ENTREGABLE_ALT = "descripcion entregable:"
 _MARKER_REALIZADAS = "descripcion de las actividades realizadas:"
-_ALL_MARKERS = (_MARKER_ACTIVITY, _MARKER_ALCANCE, _MARKER_ENTREGABLE, _MARKER_REALIZADAS)
+# Rótulos bajo los cuales aparece el enunciado de la actividad (para _read_label).
+_LABEL_MARKERS = (_MARKER_ACTIVITY, _MARKER_ACTIVITIES, _MARKER_ALCANCE)
+_ALL_MARKERS = (
+    _MARKER_ACTIVITY,
+    _MARKER_ACTIVITIES,
+    _MARKER_ALCANCE,
+    _MARKER_ENTREGABLE,
+    _MARKER_ENTREGABLE_ALT,
+    _MARKER_REALIZADAS,
+)
 
 # Signos que pueden acompañar al numeral en su celda ("VI.", "7)", "X -").
 _ORDINAL_TRAILING_CHARS = " .):- \t"
@@ -63,6 +80,12 @@ _ORDINAL_TRAILING_CHARS = " .):- \t"
 # aparece tras la última actividad ("Observaciones generales y/o actividades
 # adicionales encomendadas por...").
 _MARKER_OBSERVACIONES = "observaciones"
+
+# Fila-título que divide la tabla por profesional (p. ej. ODS 17):
+# "Actividades reportadas por el profesional Jhann Tellez". El nombre viene tras
+# la palabra "profesional".
+_MARKER_PROFESSIONAL_SECTION = "reportadas por el profesional"
+_PROFESSIONAL_NAME_RE = re.compile(r"profesional(?:\s+es)?\s*[:.\-]?\s*(.+)$", re.IGNORECASE)
 
 
 @dataclass(slots=True)
@@ -91,11 +114,20 @@ class WordEntregable:
 
 @dataclass(slots=True)
 class WordActivity:
-    """Una actividad del Word: su numeral y sus entregables."""
+    """Una actividad del Word: su numeral y sus entregables.
+
+    ``professional_name`` solo se usa en plantillas divididas por profesional
+    (p. ej. ODS 17): el Word repite la lista de numerales por cada profesional,
+    bajo una fila-título "Actividades reportadas por el profesional X". En las
+    plantillas normales queda vacío y todas las actividades forman un solo grupo.
+    ``group_index`` numera esos grupos en orden de aparición (0 si no hay grupos).
+    """
 
     ordinal: int
     label: str
     entregables: list[WordEntregable] = field(default_factory=list)
+    professional_name: str = ""
+    group_index: int = 0
 
 
 @dataclass(slots=True)
@@ -179,6 +211,10 @@ class DocxReader:
         table = match.table
         structure = WordStructure()
         current: WordActivity | None = None
+        # Estado de la sección por profesional (solo plantillas tipo ODS 17).
+        section_name = ""
+        group_index = 0
+        seen_section = False
 
         # Se itera a nivel XML (cada <w:tr> tiene sus propias <w:tc>): con celdas
         # combinadas verticalmente, ``row.cells`` de python-docx desplaza columnas.
@@ -187,10 +223,16 @@ class DocxReader:
             if not tcs:
                 continue
             if len(tcs) < 2 or len(tcs) <= match.no_col:
-                # Fila con las columnas combinadas en una sola celda: puede ser
-                # la de observaciones/actividades adicionales.
+                # Fila con las columnas combinadas en una sola celda: puede ser la
+                # de observaciones o una fila-título de profesional (ODS 17).
                 merged = _Cell(tcs[0], table)
-                if self._is_observaciones_cell(merged):
+                name = self._professional_section_name(merged)
+                if name is not None:
+                    section_name = name
+                    group_index = group_index + 1 if seen_section else 1
+                    seen_section = True
+                    current = None
+                elif self._is_observaciones_cell(merged):
                     structure.observaciones = self._read_observaciones(merged)
                     current = None
                 continue
@@ -198,6 +240,16 @@ class DocxReader:
             col_activity = _Cell(tcs[min(match.activities_col, len(tcs) - 1)], table)
 
             ordinal = self._read_ordinal(col_no)
+
+            # Fila-título de profesional escrita en la primera columna (no combinada).
+            if ordinal is None:
+                name = self._professional_section_name(col_no)
+                if name is not None:
+                    section_name = name
+                    group_index = group_index + 1 if seen_section else 1
+                    seen_section = True
+                    current = None
+                    continue
 
             # Fila de observaciones/actividades adicionales: cierra la lista de
             # actividades (su celda de texto es la PRIMERA de la fila).
@@ -209,7 +261,12 @@ class DocxReader:
             entregable = self._read_entregable(col_activity)
 
             if ordinal is not None and (current is None or ordinal != current.ordinal):
-                current = WordActivity(ordinal=ordinal, label=self._read_label(col_activity))
+                current = WordActivity(
+                    ordinal=ordinal,
+                    label=self._read_label(col_activity),
+                    professional_name=section_name,
+                    group_index=group_index,
+                )
                 structure.activities.append(current)
 
             if current is not None and entregable is not None:
@@ -226,6 +283,20 @@ class DocxReader:
     @staticmethod
     def _is_observaciones_cell(cell: _Cell) -> bool:
         return normalize_text(cell.text).startswith(_MARKER_OBSERVACIONES)
+
+    @staticmethod
+    def _professional_section_name(cell: _Cell) -> str | None:
+        """Nombre del profesional si la celda es una fila-título de sección.
+
+        "Actividades reportadas por el profesional Jhann Tellez" -> "Jhann Tellez".
+        Devuelve ``None`` si no es una fila-título de profesional.
+        """
+        text = " ".join(cell.text.split())
+        if _MARKER_PROFESSIONAL_SECTION not in normalize_text(text):
+            return None
+        match = _PROFESSIONAL_NAME_RE.search(text)
+        name = match.group(1).strip() if match else ""
+        return name  # puede ser "" si el título no trae nombre; sigue siendo sección
 
     def _read_observaciones(self, cell: _Cell) -> WordEntregable | None:
         """Extrae la sección de observaciones: título + viñeta de inserción."""
@@ -318,7 +389,7 @@ class DocxReader:
     @staticmethod
     def _read_label(cell: _Cell) -> str:
         paragraphs = cell.paragraphs
-        for marker in (_MARKER_ACTIVITY, _MARKER_ALCANCE):
+        for marker in _LABEL_MARKERS:
             idx = _find_marker(paragraphs, marker)
             if idx is not None:
                 return _clean_label(_text_until_next_marker(paragraphs, idx))
@@ -334,7 +405,9 @@ class DocxReader:
         En ambos casos el slot de inserción es la primera viñeta (``List Paragraph``).
         """
         paragraphs = cell.paragraphs
-        entregable_idx = _find_marker(paragraphs, _MARKER_ENTREGABLE)
+        entregable_idx = _find_any_marker(
+            paragraphs, (_MARKER_ENTREGABLE, _MARKER_ENTREGABLE_ALT)
+        )
         realizadas_idx = _find_marker(paragraphs, _MARKER_REALIZADAS)
 
         slot = self._find_slot(paragraphs, realizadas_idx)
@@ -455,6 +528,15 @@ def _is_list_paragraph(paragraph: Paragraph) -> bool:
 def _find_marker(paragraphs: list[Paragraph], marker: str) -> int | None:
     for i, paragraph in enumerate(paragraphs):
         if normalize_text(paragraph.text).startswith(marker):
+            return i
+    return None
+
+
+def _find_any_marker(paragraphs: list[Paragraph], markers: tuple[str, ...]) -> int | None:
+    """Índice del primer párrafo que empieza por cualquiera de ``markers``."""
+    for i, paragraph in enumerate(paragraphs):
+        normalized = normalize_text(paragraph.text)
+        if any(normalized.startswith(m) for m in markers):
             return i
     return None
 

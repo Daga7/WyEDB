@@ -64,6 +64,19 @@ def test_leading_number_in_real_content_is_kept(normalizer: ContentNormalizer) -
         "En este mes No se Aplico este Recurso No obstante esta Disponible",
         "No se ejecutaron acciones para el mes. Por lo tanto, no fue requerdida",
         "No aplica",
+        # Prefijo corto "no aplica ..." (ODS 17).
+        "No aplica para este mes",
+        "No aplica para el periodo",
+        # Frase exacta pedida por el usuario y sus variantes reales.
+        "No se solicitó esta actividad durante el periodo en reporte",
+        "En el presente periodo no se solicitó la actividad por parte de Ecopetrol S.A.",
+        "No se solicitó esta actividd durante la vigencia reportada",  # errata real
+        "La actividad no fue solicitada durante el periodo",
+        # Variantes reales de "no hubo trabajo en este numeral".
+        "Durante el periodo de reporte no se realizaron este tipo de actividades.",
+        "Durante el mes de junio no se ejecutaron actividades relacionadas con este numeral",
+        "Durante el periodo no se desarrollaron actividades asociadas, sin embargo se estuvo atento",
+        "Para el presente periodo no se ejecutó la actividad",
         "N/A",
         "-",
         "   ",
@@ -77,7 +90,9 @@ def test_is_empty_marker_true(normalizer: ContentNormalizer, texto: str) -> None
     "texto",
     [
         "Apoyo en Radicación de 3 ICA",
-        "No aplica para enero pero se realizó la gestión",  # no es marcador exacto
+        # "no aplica" seguido de contenido REAL y extenso: NO es marcador.
+        "No aplica para enero pero se realizó la gestión",
+        "No aplica el trámite anterior, pero se elaboró el informe de seguimiento del PAP",
         "Se socializa presentación",
     ],
 )

@@ -24,6 +24,10 @@ from ods_reporter.shared.text_utils import normalize_text, strip_leading_numeral
 # actividades DISTINTAS aunque compartan numeral (calibrado con datos reales:
 # misma ODS ~100 de similitud; ODS distinta ~29).
 _LABEL_SIMILARITY_THRESHOLD = 60.0
+# Proporción mínima de tokens de nombre compartidos para asignar un profesional a
+# una sección del Word (0-100). "Jhann Tellez" vs "Jhann Stive Téllez" -> 100
+# (ambos tokens del Word están en el Excel); un desconocido -> 0.
+_NAME_MATCH_THRESHOLD = 50.0
 from ods_reporter.application.services.entregable_aligner import EntregableAligner
 from ods_reporter.domain.entities.activity import Activity
 from ods_reporter.domain.exceptions import WordProcessError
@@ -56,9 +60,21 @@ class DocxProcessor:
         self._observaciones: WordEntregable | None = None
         self._ods_number: str = ""
         self._by_ordinal: dict[int, WordActivity] = {}
+        # Plantillas divididas por profesional (p. ej. ODS 17): un mapa por grupo
+        # {group_index -> {ordinal -> WordActivity}} y la lista de grupos con su
+        # nombre. ``_claimed`` recuerda qué grupo se asignó a cada profesional para
+        # que dos profesionales no compitan por la misma sección.
+        self._groups: dict[int, dict[int, WordActivity]] = {}
+        self._group_names: dict[int, str] = {}
+        self._claimed: dict[str, int] = {}
         # Entregables del Word que ya recibieron contenido (para no sobrescribir
         # ni rellenarlos luego con el texto por defecto).
         self._filled: set[int] = set()
+
+    @property
+    def _has_professional_groups(self) -> bool:
+        """``True`` si la plantilla divide las actividades por profesional."""
+        return len(self._group_names) > 1
 
     def open(self, path: Path) -> None:
         try:
@@ -70,6 +86,8 @@ class DocxProcessor:
         self._observaciones = structure.observaciones
         self._ods_number = find_ods_number(self._document)
         self._by_ordinal = {a.ordinal: a for a in self._activities}
+        self._build_groups()
+        self._claimed = {}
         self._filled = set()
         logger.info(
             "Word '%s' abierto: %d actividades (observaciones: %s).",
@@ -77,6 +95,92 @@ class DocxProcessor:
             len(self._activities),
             "sí" if self._observaciones else "no",
         )
+
+    # --- Grupos por profesional (plantillas tipo ODS 17) ---
+
+    def _build_groups(self) -> None:
+        """Agrupa las actividades por ``group_index`` (sección de profesional)."""
+        self._groups = {}
+        self._group_names = {}
+        for activity in self._activities:
+            group = self._groups.setdefault(activity.group_index, {})
+            # A igual numeral dentro del grupo gana la primera (no debería repetirse).
+            group.setdefault(activity.ordinal, activity)
+            self._group_names.setdefault(activity.group_index, activity.professional_name)
+
+    def _resolve_group(self, professional_name: str) -> tuple[int, str | None]:
+        """Devuelve (group_index, advertencia) para un profesional.
+
+        Empareja el nombre del Excel con la sección del Word por tokens de nombre
+        compartidos. Si ninguna casa, toma la primera sección aún no reclamada
+        (con advertencia). Cada sección se reclama una sola vez.
+        """
+        key = normalize_text(professional_name)
+        if key in self._claimed:
+            return self._claimed[key], None
+
+        best_group: int | None = None
+        best_score = 0.0
+        for group_index, name in self._group_names.items():
+            if group_index in self._claimed.values():
+                continue
+            score = self._name_similarity(professional_name, name)
+            if score > best_score:
+                best_score = score
+                best_group = group_index
+
+        if best_group is not None and best_score >= _NAME_MATCH_THRESHOLD:
+            self._claimed[key] = best_group
+            return best_group, None
+
+        # Sin coincidencia clara: primera sección libre (para no perder contenido).
+        free = [g for g in sorted(self._group_names) if g not in self._claimed.values()]
+        if free:
+            self._claimed[key] = free[0]
+            warning = (
+                f"El profesional '{professional_name}' no coincide con ninguna "
+                f"sección del Word; su contenido se colocó en la sección "
+                f"'{self._group_names[free[0]] or f'#{free[0]}'}'. Verifíquelo."
+            )
+            return free[0], warning
+
+        # No quedan secciones libres: se reutiliza la mejor aunque esté reclamada.
+        fallback = best_group if best_group is not None else next(iter(self._group_names))
+        self._claimed[key] = fallback
+        warning = (
+            f"El profesional '{professional_name}' no tiene una sección propia "
+            f"disponible en el Word; se reutilizó '{self._group_names.get(fallback, '')}'."
+        )
+        return fallback, warning
+
+    @staticmethod
+    def _name_similarity(excel_name: str, word_name: str) -> float:
+        """Similitud entre nombres tolerante a nombres/apellidos omitidos.
+
+        Usa la proporción de tokens del nombre del Word (normalmente el más corto:
+        "Jhann Tellez") presentes en el del Excel ("Jhann Stive Téllez"). Así un
+        Word abreviado casa aunque el Excel traiga nombres intermedios.
+        """
+        excel_tokens = set(normalize_text(excel_name).split())
+        word_tokens = set(normalize_text(word_name).split())
+        if not excel_tokens or not word_tokens:
+            return 0.0
+        shared = excel_tokens & word_tokens
+        # Proporción respecto al conjunto más pequeño (el más específico).
+        return len(shared) / min(len(excel_tokens), len(word_tokens)) * 100.0
+
+    def _word_activity_for(
+        self, ordinal: int, professional_name: str
+    ) -> tuple[WordActivity | None, str | None]:
+        """Actividad del Word destino para (numeral, profesional).
+
+        En plantillas normales usa ``_by_ordinal``. En plantillas por profesional
+        usa el grupo asignado a ese profesional.
+        """
+        if not self._has_professional_groups:
+            return self._by_ordinal.get(ordinal), None
+        group_index, warning = self._resolve_group(professional_name)
+        return self._groups.get(group_index, {}).get(ordinal), warning
 
     def get_activity_ordinals(self) -> list[int]:
         return [a.ordinal for a in self._activities]
@@ -92,9 +196,16 @@ class DocxProcessor:
             for a in self._activities
         ]
 
-    def plan_activity_content(self, activity: Activity) -> ActivityInsertResult:
-        """Calcula el resultado de insertar ``activity`` sin escribir nada."""
-        word_activity = self._by_ordinal.get(activity.ordinal)
+    def plan_activity_content(
+        self, activity: Activity, professional_name: str = ""
+    ) -> ActivityInsertResult:
+        """Calcula el resultado de insertar ``activity`` sin escribir nada.
+
+        En plantillas por profesional (ODS 17) se resuelve la sección por el
+        nombre; el ``plan`` no reclama secciones para no descuadrar la asignación
+        real, así que aquí se usa solo para estimar.
+        """
+        word_activity = self._peek_word_activity(activity.ordinal, professional_name)
         if word_activity is None:
             return self._not_found_result(activity)
         assignments = self._compute_assignments(activity, word_activity)
@@ -103,11 +214,14 @@ class DocxProcessor:
         )
 
     def insert_activity_content(
-        self, activity: Activity, target_ordinal: int | None = None
+        self,
+        activity: Activity,
+        target_ordinal: int | None = None,
+        professional_name: str = "",
     ) -> ActivityInsertResult:
         manual = target_ordinal is not None
         ordinal = target_ordinal if target_ordinal is not None else activity.ordinal
-        word_activity = self._by_ordinal.get(ordinal)
+        word_activity, group_warning = self._word_activity_for(ordinal, professional_name)
         if word_activity is None:
             return self._not_found_result(activity)
 
@@ -121,11 +235,35 @@ class DocxProcessor:
             assignments = self._compute_assignments(activity, word_activity)
             warnings = self._label_mismatch_warnings(activity, word_activity)
 
+        if group_warning:
+            warnings = (group_warning, *warnings)
+
         for word_entregable, items in assignments:
             self._writer.fill_entregable(word_entregable, items)
             self._filled.add(id(word_entregable))
 
         return self._build_result(activity, assignments, warnings)
+
+    def _peek_word_activity(
+        self, ordinal: int, professional_name: str
+    ) -> WordActivity | None:
+        """Actividad destino para el plan, SIN reclamar la sección.
+
+        En plantillas normales usa ``_by_ordinal``. En plantillas por profesional
+        estima la sección por similitud de nombre sin fijar la asignación.
+        """
+        if not self._has_professional_groups:
+            return self._by_ordinal.get(ordinal)
+        best_group: int | None = None
+        best_score = -1.0
+        for group_index, name in self._group_names.items():
+            score = self._name_similarity(professional_name, name)
+            if score > best_score:
+                best_score = score
+                best_group = group_index
+        if best_group is None:
+            return None
+        return self._groups.get(best_group, {}).get(ordinal)
 
     def _label_mismatch_warnings(
         self, activity: Activity, word_activity: WordActivity

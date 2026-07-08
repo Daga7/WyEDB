@@ -10,7 +10,7 @@ from typing import Final
 
 # --- Identidad de la aplicación ---
 APP_NAME: Final[str] = "ODS Reporter"
-APP_VERSION: Final[str] = "3.3.1"
+APP_VERSION: Final[str] = "3.4.0"
 
 # --- Meses del año (nombres de las pestañas del Excel, en mayúsculas) ---
 MONTHS: Final[tuple[str, ...]] = (
@@ -63,12 +63,33 @@ NO_ACTIVITY_EXACT_MARKERS: Final[tuple[str, ...]] = (
 # producto/esta actividad", etc.).
 NO_ACTIVITY_CONTAINS: Final[tuple[str, ...]] = (
     "no se requirio",          # ...el servicio / el producto / esta actividad
+    "no se solicito",          # "No se solicitó esta actividad durante el periodo..."
     "no fue requer",           # no fue requerida / requerido / requerdida (errata)
     "no fue requir",           # no fue requerido / requirerido (erratas)
+    "no fue solicit",          # no fue solicitada / solicitado
     "no se aplico este recurso",
     "no se presto el servicio",
     "no se presento actividad",
+    # Variantes reales frecuentes de "no hubo trabajo en este numeral": el
+    # profesional aclara que estuvo atento pero no se ejecutó/realizó/desarrolló
+    # ninguna actividad (raíces cortas para tolerar el resto de la redacción).
+    "no se ejecutaron actividades",
+    "no se ejecuto la actividad",
+    "no se ejecuto esta actividad",
+    "no se realizaron este tipo de actividades",
+    "no se realizaron actividades",
+    "no se desarrollaron actividades",
 )
+
+# Prefijos "cortos" de no-actividad: una línea que EMPIEZA así y es breve (sin un
+# enunciado real a continuación) se trata como "actividad no realizada". Se exige
+# brevedad para no descartar aclaraciones legítimas como
+# "No aplica para enero, pero se realizó X" (ver NO_ACTIVITY_SHORT_MAX_WORDS).
+NO_ACTIVITY_SHORT_PREFIXES: Final[tuple[str, ...]] = (
+    "no aplica",               # "no aplica", "no aplica para este mes / el periodo"
+)
+# Máximo de palabras de una línea con prefijo corto para considerarla vacía.
+NO_ACTIVITY_SHORT_MAX_WORDS: Final[int] = 8
 
 # Umbral por debajo del cual un profesional se marca para seguimiento.
 MIN_ACTIVITIES_THRESHOLD: Final[int] = 5

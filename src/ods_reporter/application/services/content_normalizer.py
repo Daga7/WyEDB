@@ -20,6 +20,8 @@ from ods_reporter.shared.constants import (
     NO_ACTIVITY_CONTAINS,
     NO_ACTIVITY_EXACT_MARKERS,
     NO_ACTIVITY_SENTENCE_PREFIXES,
+    NO_ACTIVITY_SHORT_MAX_WORDS,
+    NO_ACTIVITY_SHORT_PREFIXES,
 )
 from ods_reporter.shared.text_utils import (
     clean_content_line,
@@ -65,10 +67,13 @@ class ContentNormalizer:
     def is_empty_marker(text: str) -> bool:
         """``True`` si el texto indica ausencia de actividad (se debe ignorar).
 
-        Detecta tres formas:
+        Detecta cuatro formas:
           - frases que EMPIEZAN por "no se requirió...";
-          - frases que CONTIENEN "no se requirió el servicio/producto..." (aunque
-            vengan precedidas de "Durante el periodo..." / "En el presente periodo...");
+          - frases que CONTIENEN "no se requirió/solicitó el servicio/producto/esta
+            actividad..." (aunque vengan precedidas de "Durante el periodo..." /
+            "En el presente periodo...");
+          - prefijos "cortos" ("no aplica", "no aplica para este mes"): solo si la
+            línea es breve, para no descartar aclaraciones con contenido real;
           - marcadores exactos ("no aplica", "n/a").
         """
         normalized = normalize_text(text).rstrip(".-: ").strip()
@@ -78,4 +83,18 @@ class ContentNormalizer:
             return True
         if any(phrase in normalized for phrase in NO_ACTIVITY_CONTAINS):
             return True
+        if ContentNormalizer._is_short_no_activity(normalized):
+            return True
         return normalized in NO_ACTIVITY_EXACT_MARKERS
+
+    @staticmethod
+    def _is_short_no_activity(normalized: str) -> bool:
+        """``True`` si la línea empieza por un prefijo corto de no-actividad y es breve.
+
+        Ej.: ``"no aplica para este mes"`` (4 palabras) -> vacío; en cambio
+        ``"no aplica para enero, pero se realizo el seguimiento X"`` (largo) se
+        conserva por describir actividad real.
+        """
+        if not any(normalized.startswith(p) for p in NO_ACTIVITY_SHORT_PREFIXES):
+            return False
+        return len(normalized.split()) <= NO_ACTIVITY_SHORT_MAX_WORDS

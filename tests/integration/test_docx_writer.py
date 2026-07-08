@@ -97,3 +97,40 @@ def test_empty_items_writes_nothing(
     activities = reader.read_activities(document)
     entregable = _activity(activities, 2).entregables[0]
     assert writer.fill_entregable(entregable, ()) == 0
+
+
+def test_inserted_run_inherits_paragraph_mark_size(
+    reader: DocxReader, writer: DocxWriter, word_fixture: Path, tmp_path: Path
+) -> None:
+    """El run insertado toma el tamaño/idioma de la marca de párrafo del slot.
+
+    Sin esto, un run "pelado" heredaba el tamaño del estilo (a veces menor), que
+    era la causa de que la fuente encogiera al copiar al Word.
+    """
+    from docx.oxml.ns import qn
+
+    document = docx.Document(str(word_fixture))
+    activities = reader.read_activities(document)
+    entregable = _activity(activities, 2).entregables[0]
+
+    # Tamaño previsto por la plantilla (marca de párrafo del slot).
+    p_pr = entregable.slot_paragraph._p.find(qn("w:pPr"))
+    mark_rpr = p_pr.find(qn("w:rPr"))
+    mark_sz = mark_rpr.find(qn("w:sz")).get(qn("w:val"))
+
+    writer.fill_entregable(entregable, (ContentItem("Contenido con tildes: acción"),))
+
+    out = tmp_path / "salida.docx"
+    document.save(str(out))
+    reloaded = docx.Document(str(out))
+    cell = _activity(reader.read_activities(reloaded), 2).entregables[0].cell
+    run = next(
+        run
+        for paragraph in cell.paragraphs
+        for run in paragraph.runs
+        if run.text.strip()
+    )
+    run_rpr = run._element.find(qn("w:rPr"))
+    run_sz = run_rpr.find(qn("w:sz")) if run_rpr is not None else None
+    assert run_sz is not None
+    assert run_sz.get(qn("w:val")) == mark_sz

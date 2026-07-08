@@ -14,6 +14,7 @@ from __future__ import annotations
 import copy
 from typing import TYPE_CHECKING
 
+from docx.oxml.ns import qn
 from docx.text.paragraph import Paragraph
 
 from ods_reporter.domain.value_objects.content_item import ContentItem
@@ -78,17 +79,48 @@ class DocxWriter:
 
     @staticmethod
     def _set_text(paragraph: Paragraph, text: str) -> None:
-        """Fija el texto del párrafo conservando el formato del primer run.
+        """Fija el texto del párrafo conservando EXACTAMENTE el formato de la plantilla.
 
-        Reutiliza el primer run (su fuente/estilo) y elimina los runs sobrantes,
-        de modo que el formato de carácter del slot se preserve.
+        Dos casos:
+
+        - El párrafo ya tiene runs: se reutiliza el primero (con su fuente, tamaño
+          e idioma) y se eliminan los sobrantes.
+        - El párrafo está vacío (0 runs), que es el caso de los slots de plantilla:
+          el formato previsto vive en la marca de párrafo (``w:pPr/w:rPr``: Arial,
+          tamaño, color e idioma ``es-ES``). Se crea el run y se le copia ese
+          ``rPr``. Sin esto, un run "pelado" hereda el tamaño del *estilo* (que a
+          veces es menor -> la fuente encogía) y pierde el idioma (los acentos se
+          representaban mal).
         """
         if paragraph.runs:
             paragraph.runs[0].text = text
             for extra_run in paragraph.runs[1:]:
                 extra_run._element.getparent().remove(extra_run._element)
-        else:
-            paragraph.add_run(text)
+            return
+
+        run = paragraph.add_run(text)
+        DocxWriter._apply_mark_formatting(paragraph, run)
+
+    @staticmethod
+    def _apply_mark_formatting(paragraph: Paragraph, run) -> None:
+        """Copia el ``rPr`` de la marca de párrafo (``pPr/rPr``) al ``rPr`` del run.
+
+        Es el formato que Word muestra para ese párrafo vacío; aplicarlo al run
+        garantiza que el texto insertado tenga el mismo tamaño, fuente e idioma que
+        la plantilla, tal como si lo hubiera escrito una persona.
+        """
+        p_pr = paragraph._p.find(qn("w:pPr"))
+        if p_pr is None:
+            return
+        mark_rpr = p_pr.find(qn("w:rPr"))
+        if mark_rpr is None:
+            return
+        # Reemplaza el rPr del run por una copia del de la marca de párrafo.
+        r_element = run._element
+        existing = r_element.find(qn("w:rPr"))
+        if existing is not None:
+            r_element.remove(existing)
+        r_element.insert(0, copy.deepcopy(mark_rpr))
 
     @staticmethod
     def _clone_after(paragraph: Paragraph, text: str) -> Paragraph:

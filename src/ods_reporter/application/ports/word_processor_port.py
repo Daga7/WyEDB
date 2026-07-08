@@ -54,16 +54,26 @@ class WordProcessorPort(Protocol):
         """Devuelve numeral, título y cantidad de entregables de cada actividad."""
         ...
 
-    def plan_activity_content(self, activity: Activity) -> ActivityInsertResult:
-        """Calcula qué ocurriría al insertar ``activity``, sin escribir nada."""
+    def plan_activity_content(
+        self, activity: Activity, professional_name: str = ""
+    ) -> ActivityInsertResult:
+        """Calcula qué ocurriría al insertar ``activity``, sin escribir nada.
+
+        ``professional_name`` solo importa en plantillas divididas por profesional
+        (ODS 17), donde decide en qué sección del Word iría el contenido.
+        """
         ...
 
     def insert_activity_content(
-        self, activity: Activity, target_ordinal: int | None = None
+        self,
+        activity: Activity,
+        target_ordinal: int | None = None,
+        professional_name: str = "",
     ) -> ActivityInsertResult:
         """Inserta el contenido de ``activity`` (emparejando por numeral y
         alineando entregables por texto). Con ``target_ordinal`` se fuerza el
-        destino (reasignación manual). Devuelve el detalle de lo ocurrido.
+        destino (reasignación manual). ``professional_name`` selecciona la sección
+        del profesional en plantillas divididas (ODS 17). Devuelve el detalle.
         """
         ...
 

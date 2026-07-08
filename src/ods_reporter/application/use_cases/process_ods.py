@@ -223,7 +223,9 @@ class ProcessODSUseCase:
         for activity in professional.activities:
             if not activity.has_content:
                 continue
-            outcome = self._deps.word_processor.plan_activity_content(activity)
+            outcome = self._deps.word_processor.plan_activity_content(
+                activity, professional_name=professional.name
+            )
             items = (
                 outcome.items_written
                 if outcome.matched
@@ -407,7 +409,7 @@ class ProcessODSUseCase:
 
             try:
                 insert = self._deps.word_processor.insert_activity_content(
-                    activity, target_ordinal=target
+                    activity, target_ordinal=target, professional_name=professional.name
                 )
             except Exception as exc:  # noqa: BLE001 - una actividad no detiene el resto
                 logger.exception(
